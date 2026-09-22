@@ -1,0 +1,122 @@
+[
+  {
+    "question": "What specific hardware components were used to validate ITME's performance potential and demonstrate its functional feasibility?",
+    "chunk_id": "itme:p1:1"
+  },
+  {
+    "question": "What is the name of the technology introduced to accelerate remote access and establish a specialized shared context tier (T3.5) between server-internal NVMe SSDs (T3) and remote shared storage (T4)?",
+    "chunk_id": "itme:p2:4"
+  },
+  {
+    "question": "What are the names and dimensions of the three matrices used to produce q_t, k_t, and v_t in the standard multi-head attention mechanism described in the paper?",
+    "chunk_id": "deepseek-v2:p6:3"
+  },
+  {
+    "question": "What is the number of routed experts activated for each token in the DeepSeek-V2-Lite model's MoE layers?",
+    "chunk_id": "deepseek-v2:p29:0"
+  },
+  {
+    "question": "During which phase does ITME schedule asynchronous writes to ensure the SSD returns to a clean state before the next compute-intensive prefill phase begins?",
+    "chunk_id": "itme:p7:1"
+  },
+  {
+    "question": "What is the measured operational overhead of the chm_prefetch() function for deterministic workloads where weights are directly mapped via mmap(), and how does this overhead compare to the total transfer time for moving a 1 MB chunk?",
+    "chunk_id": "itme:p6:0"
+  },
+  {
+    "question": "According to Table 1, which LLM data types are characterized by high performance criticality and are better placed in high-speed GPU or host memory tiers?",
+    "chunk_id": "itme:p2:0"
+  },
+  {
+    "question": "What is the evaluated result of the logical expression 'not not ( not ( False ) )' as explained in the text?",
+    "chunk_id": "deepseek-v2:p36:1"
+  },
+  {
+    "question": "What is the role of the /proc/[pid]/pagemap interface in the user-directed prefetching interface described in section 3.2?",
+    "chunk_id": "itme:p5:4"
+  },
+  {
+    "question": "What is the location of the garbage disposable machine's reset button mentioned in the PIQA example?",
+    "chunk_id": "deepseek-v2:p48:0"
+  },
+  {
+    "question": "What batch size and input sequence length were used in the evaluation of ITME's weight prefetching impact with the Mooncake workload?",
+    "chunk_id": "itme:p10:4"
+  },
+  {
+    "question": "What is the size of the dataset called 'The Pile' mentioned in the references, and what is its primary purpose?",
+    "chunk_id": "deepseek-v2:p23:0"
+  },
+  {
+    "question": "What mechanism does the scheduler use to handle pending writes during an immediate data fetch to prevent long-tail blocking in the remote SSD?",
+    "chunk_id": "itme:p7:0"
+  },
+  {
+    "question": "What is the average bit size used for KV cache quantization in DeepSeek-V2 as described in the paper?",
+    "chunk_id": "deepseek-v2:p16:2"
+  },
+  {
+    "question": "What method was used to analyze the Humanity-Moral subset from the MMLU test set, and what was the size of the sample analyzed by the human annotators?",
+    "chunk_id": "deepseek-v2:p32:1"
+  },
+  {
+    "question": "What are the average read and write bandwidths achieved by the FPGA prototype implementation of the ITME architecture during DRAM cache hits, as reported in the paper?",
+    "chunk_id": "itme:p10:6"
+  },
+  {
+    "question": "What are the specific values of the hyper-parameters \\( \\beta_1 \\), \\( \\beta_2 \\), and weight decay used with the AdamW optimizer in the training described?",
+    "chunk_id": "deepseek-v2:p12:2"
+  },
+  {
+    "question": "Who are the first five individuals listed under the Research & Engineering contributions in the acknowledgments section?",
+    "chunk_id": "deepseek-v2:p27:0"
+  },
+  {
+    "question": "What are the specific components involved in the multi-tier DMA prefetching process described, and what are their roles in moving data from the CXL-hybrid memory to the GPU memory?",
+    "chunk_id": "itme:p8:2"
+  },
+  {
+    "question": "What is the name of the reinforcement learning algorithm used to save training costs in DeepSeek-V2, and how does it estimate the baseline differently from typical methods?",
+    "chunk_id": "deepseek-v2:p17:0"
+  },
+  {
+    "question": "What is the radius of the base of the cylindrical container mentioned in the problem about the water level rising when a conical lead weight is submerged?",
+    "chunk_id": "deepseek-v2:p39:0"
+  },
+  {
+    "question": "What specific parallelism techniques are employed in the training of DeepSeek-V2 according to the HAI-LLM framework?",
+    "chunk_id": "deepseek-v2:p12:3"
+  },
+  {
+    "question": "In DeepSeek-V2, what is the minimum number of devices (M) on which the target experts of each token are distributed to achieve performance roughly aligned with unrestricted top-K routing?",
+    "chunk_id": "deepseek-v2:p10:0"
+  },
+  {
+    "question": "According to the example in the text, how many letters does Indras' sister's name have if it has 4 more letters than half of the letters in Indras' name?",
+    "chunk_id": "deepseek-v2:p43:2"
+  },
+  {
+    "question": "What is the specific configuration of DRAM channels and SSD channels used to resolve the bandwidth mismatch in the system described?",
+    "chunk_id": "itme:p5:2"
+  },
+  {
+    "question": "What is the maximum speedup achieved by the Ideal GPU memory configuration, and how does ITME's speedup at turn 5 compare to it?",
+    "chunk_id": "itme:p9:4"
+  },
+  {
+    "question": "According to the multiple choice questions provided, which place is named in the title of the 1979 live album by rock legends Cheap Trick?",
+    "chunk_id": "deepseek-v2:p47:0"
+  },
+  {
+    "question": "What is the bandwidth in GB/s across different DMA paths for data sizes ranging from 2 MB to 2 GB as shown in Figure 3?",
+    "chunk_id": "itme:p3:3"
+  },
+  {
+    "question": "What are the names of the two military leaders whose equestrian statues are located on Heldenplatz?",
+    "chunk_id": "deepseek-v2:p41:0"
+  },
+  {
+    "question": "What is the title and arXiv identifier of the 2021 paper authored by J. Austin, A. Odena, M. Nye, and others on program synthesis with large language models?",
+    "chunk_id": "deepseek-v2:p22:0"
+  }
+]
