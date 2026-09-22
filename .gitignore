@@ -1,0 +1,23 @@
+# Python
+.python-version
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Env & secrets
+.env
+.env.*
+
+# OS / Editor 
+.DS_Store
+.vscode/
+
+# 환경 스캐폴딩 
+pyproject.toml
+uv.lock
+
+# outputs
+outputs/*
+!outputs/report.md
+!outputs/eval_set.json
