@@ -234,8 +234,10 @@ flowchart TD
 ```
 .
 ├── app.py                    실행 진입점. 명령줄 인자를 읽어 그래프나 노드 하나를 돌린다
+├── report_pdf.py             마크다운 보고서를 한글 지원 PDF로 변환한다
 ├── graph.py                  메인 그래프 조립. 노드와 조건부 엣지를 붙여 컴파일한다
 ├── config.yaml               모델 이름, 재시도 상한, 검색 개수, 실행 범위
+├── .env.example              OpenAI·Tavily·LangSmith 환경 변수 예시
 ├── requirements.txt
 │
 ├── core/                     계약과 로더. 모든 모듈이 공유한다
@@ -245,7 +247,8 @@ flowchart TD
 │   ├── llm.py                생성·판정 모델 호출 창구. 구조화 출력과 캐시
 │   ├── cache.py              응답 파일 캐시
 │   ├── criteria.py           평가 기준 로더
-│   └── prompts.py            프롬프트 템플릿 로더
+│   ├── prompts.py            프롬프트 템플릿 로더
+│   └── tracing.py            LangSmith 추적 설정과 실행 메타데이터 구성
 │
 ├── agents/                   노드 함수
 │   ├── subgraph.py           관점 공용 서브그래프
@@ -272,7 +275,7 @@ flowchart TD
 │   ├── fixtures/             단독 실행용 샘플 JSON 8개
 │   └── registry.yaml         원문 서지 정보
 │
-└── outputs/                  report.md, eval_set.json (색인·캐시·로그는 git 제외)
+└── outputs/                  report.md, report.pdf, eval_set.json (색인·캐시·로그는 git 제외)
 ```
 
 코드는 `core/`, `agents/`, `rag/` 세 패키지뿐이고 `prompts/`와 `data/`에는 파이썬 파일이 없다. 평가 기준과 프롬프트를 코드 밖으로 빼 두어 내용 수정과 코드 수정을 분리했다.
