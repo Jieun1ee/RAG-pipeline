@@ -8,7 +8,7 @@ KV 캐시 병목을 상반된 방식으로 푸는 두 기술을 네 관점에서
 git clone git@github.com:Jieun1ee/RAG-pipeline.git && cd RAG-pipeline
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env     # OPENAI_API_KEY, TAVILY_API_KEY 입력
+cp .env.example .env     # OPENAI_API_KEY, TAVILY_API_KEY, LANGCHAIN_API_KEY 입력
 python -m rag.indexer    # 색인 생성 (한 번만)
 python app.py            # 전체 실행 → outputs/report.md
 ```
@@ -20,7 +20,7 @@ API 키 없이 흐름만 확인하려면 `python app.py --dry-run`. 옵션 전�
 | 항목 | 값 |
 |---|---|
 | Python | 3.11 |
-| API 키 | `OPENAI_API_KEY`, `TAVILY_API_KEY` |
+| API 키 | `OPENAI_API_KEY`, `TAVILY_API_KEY`, `LANGCHAIN_API_KEY` |
 | 임베딩 모델 | BAAI/bge-m3. 첫 실행 시 약 2GB 내려받아 로컬에서 돌린다 |
 | 색인 생성 | 논문 2편 65쪽 → 청크 187개, 20초 안팎 |
 | 전체 실행 | 9분 안팎, 모델 호출 700건 안팎 |
