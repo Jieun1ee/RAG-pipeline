@@ -22,7 +22,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from agents.subgraph import NODE_RUNS
-from core import config
+from core import config, tracing
 from core.state import MainState, load_fixture
 from graph import NODE_INPUTS, NODES, build_graph, select_tech
 from report_pdf import PDFRenderError, render_pdf
@@ -112,6 +112,7 @@ def main(argv: list[str] | None = None) -> int:
     config.apply_cli(dry_run=args.dry_run, retry=args.retry, criteria_limit=args.criteria_limit, no_cache=args.no_cache)
     setup_logging()
     cfg = config.get()
+    tracing.configure()
     log.info(
         "dry_run=%s retry=%s criteria_limit=%s cache=%s",
         cfg["dry_run"], cfg["retry"], cfg["execution"]["criteria_limit"], cfg["cache"]["enabled"],
@@ -128,7 +129,14 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
 
-    result = run_only(args.only) if args.only else build_graph().invoke({})
+    result = (
+        run_only(args.only)
+        if args.only
+        else build_graph().invoke(
+            {},
+            config=tracing.run_config(dry_run=cfg["dry_run"], mode="full"),
+        )
+    )
 
     if result.get("final_report"):
         try:
