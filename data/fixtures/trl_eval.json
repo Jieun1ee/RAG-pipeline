@@ -1,0 +1,125 @@
+{
+  "perspective": "trl",
+  "assessments": [
+    {
+      "id": "TRL-1-MLA",
+      "criterion": "TRL-1",
+      "technology": "MLA",
+      "status": "assessed",
+      "levels": {},
+      "rationale": "예시 근거",
+      "finding_ids": [
+        "trl-TRL-1-MLA-01"
+      ]
+    },
+    {
+      "id": "TRL-1-ITME",
+      "criterion": "TRL-1",
+      "technology": "ITME",
+      "status": "assessed",
+      "levels": {},
+      "rationale": "예시 근거",
+      "finding_ids": [
+        "trl-TRL-1-ITME-01"
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "trl-TRL-1-MLA-01",
+      "technology": "MLA",
+      "criterion": "TRL-1",
+      "claim": "예시 주장 (공개 정보 기반 추정)",
+      "polarity": "neutral",
+      "evidence": [
+        {
+          "ref_id": "https://example.com/mla",
+          "quote": "MLA 예시 인용문",
+          "source_type": "web",
+          "source_nature": "산업 뉴스·리포트",
+          "is_self_reported": false,
+          "title": "예시 웹 문서 (MLA)",
+          "author_or_org": "예시 매체",
+          "venue": "예시 웹",
+          "date": "2026-01-01",
+          "url": "https://example.com/mla",
+          "locator": null,
+          "summary": "예시 요약"
+        }
+      ],
+      "conditions": null,
+      "confidence": "medium"
+    },
+    {
+      "id": "trl-TRL-1-ITME-01",
+      "technology": "ITME",
+      "criterion": "TRL-1",
+      "claim": "예시 주장 (공개 정보 기반 추정)",
+      "polarity": "neutral",
+      "evidence": [
+        {
+          "ref_id": "https://example.com/itme",
+          "quote": "ITME 예시 인용문",
+          "source_type": "web",
+          "source_nature": "산업 뉴스·리포트",
+          "is_self_reported": false,
+          "title": "예시 웹 문서 (ITME)",
+          "author_or_org": "예시 매체",
+          "venue": "예시 웹",
+          "date": "2026-01-01",
+          "url": "https://example.com/itme",
+          "locator": null,
+          "summary": "예시 요약"
+        }
+      ],
+      "conditions": null,
+      "confidence": "medium"
+    }
+  ],
+  "dissent": [],
+  "gaps": [
+    "예시: 확인하지 못한 항목"
+  ],
+  "estimates": [
+    {
+      "technology": "MLA",
+      "status": "estimated",
+      "trl_min": 1,
+      "trl_max": 3,
+      "stage_evidence": {
+        "1": "direct",
+        "2": "indirect",
+        "3": "indirect",
+        "4": "none",
+        "5": "none",
+        "6": "none",
+        "7": "none",
+        "8": "none",
+        "9": "none"
+      },
+      "inference_note": "예시 추정 근거",
+      "confidence": "medium",
+      "disclaimer": "공개 정보 기반 추정"
+    },
+    {
+      "technology": "ITME",
+      "status": "estimated",
+      "trl_min": 1,
+      "trl_max": 3,
+      "stage_evidence": {
+        "1": "direct",
+        "2": "indirect",
+        "3": "indirect",
+        "4": "none",
+        "5": "none",
+        "6": "none",
+        "7": "none",
+        "8": "none",
+        "9": "none"
+      },
+      "inference_note": "예시 추정 근거",
+      "confidence": "medium",
+      "disclaimer": "공개 정보 기반 추정"
+    }
+  ]
+}

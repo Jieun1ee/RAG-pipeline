@@ -1,0 +1,20 @@
+{
+  "agreements": [
+    {
+      "statement": "예시 합의",
+      "finding_ids": [
+        "market-MKT-1-MLA-01",
+        "domain-DOM-1-MLA-01"
+      ]
+    }
+  ],
+  "conflicts": [
+    {
+      "statement": "예시 충돌",
+      "finding_ids": [
+        "stakeholder-STK-1-ITME-01",
+        "domain-DOM-1-ITME-01"
+      ]
+    }
+  ]
+}

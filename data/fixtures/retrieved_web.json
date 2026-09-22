@@ -1,0 +1,24 @@
+[
+  {
+    "id": "https://example.com/mla",
+    "text": "예시 웹 본문. MLA 예시 인용문. 뒤에 이어지는 예시 문장.",
+    "source_type": "web",
+    "title": "예시 웹 문서 (MLA)",
+    "url": "https://example.com/mla",
+    "date": "2026-01-01",
+    "author_or_org": "예시 매체",
+    "page": null,
+    "doc_id": null
+  },
+  {
+    "id": "https://example.com/itme",
+    "text": "예시 웹 본문. ITME 예시 인용문. 뒤에 이어지는 예시 문장.",
+    "source_type": "web",
+    "title": "예시 웹 문서 (ITME)",
+    "url": "https://example.com/itme",
+    "date": "2026-01-01",
+    "author_or_org": "예시 매체",
+    "page": null,
+    "doc_id": null
+  }
+]

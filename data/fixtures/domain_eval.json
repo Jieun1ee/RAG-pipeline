@@ -1,0 +1,83 @@
+{
+  "perspective": "domain",
+  "assessments": [
+    {
+      "id": "DOM-1-MLA",
+      "criterion": "DOM-1",
+      "technology": "MLA",
+      "status": "assessed",
+      "levels": {},
+      "rationale": "예시 근거",
+      "finding_ids": [
+        "domain-DOM-1-MLA-01"
+      ]
+    },
+    {
+      "id": "DOM-1-ITME",
+      "criterion": "DOM-1",
+      "technology": "ITME",
+      "status": "assessed",
+      "levels": {},
+      "rationale": "예시 근거",
+      "finding_ids": [
+        "domain-DOM-1-ITME-01"
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "domain-DOM-1-MLA-01",
+      "technology": "MLA",
+      "criterion": "DOM-1",
+      "claim": "예시 주장",
+      "polarity": "neutral",
+      "evidence": [
+        {
+          "ref_id": "deepseek-v2:p1:0",
+          "quote": "MLA 예시 인용문",
+          "source_type": "paper",
+          "source_nature": "논문",
+          "is_self_reported": true,
+          "title": "DeepSeek-V2: A Strong, Economical, and Efficient Mixture-of-Experts Language Model",
+          "author_or_org": "DeepSeek-AI",
+          "venue": "arXiv",
+          "date": "2024",
+          "url": "https://arxiv.org/abs/2405.04434",
+          "locator": "p.1",
+          "summary": "예시 요약"
+        }
+      ],
+      "conditions": null,
+      "confidence": "medium"
+    },
+    {
+      "id": "domain-DOM-1-ITME-01",
+      "technology": "ITME",
+      "criterion": "DOM-1",
+      "claim": "예시 주장",
+      "polarity": "neutral",
+      "evidence": [
+        {
+          "ref_id": "itme:p1:0",
+          "quote": "ITME 예시 인용문",
+          "source_type": "paper",
+          "source_nature": "논문",
+          "is_self_reported": true,
+          "title": "ITME: Inference Tiered Memory Expansion with Disaggregated CXL-Hybrid Memories",
+          "author_or_org": "Jang, H. et al. (SK hynix)",
+          "venue": "arXiv",
+          "date": "2026",
+          "url": "https://arxiv.org/abs/2606.12556",
+          "locator": "p.1",
+          "summary": "예시 요약"
+        }
+      ],
+      "conditions": null,
+      "confidence": "medium"
+    }
+  ],
+  "dissent": [],
+  "gaps": [
+    "예시: 확인하지 못한 항목"
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "perspective": "market",
+  "assessments": [
+    {
+      "id": "MKT-1-MLA",
+      "criterion": "MKT-1",
+      "technology": "MLA",
+      "status": "assessed",
+      "levels": {
+        "채택 위험": "중간"
+      },
+      "rationale": "예시 근거",
+      "finding_ids": [
+        "market-MKT-1-MLA-01"
+      ]
+    },
+    {
+      "id": "MKT-1-ITME",
+      "criterion": "MKT-1",
+      "technology": "ITME",
+      "status": "assessed",
+      "levels": {
+        "채택 위험": "중간"
+      },
+      "rationale": "예시 근거",
+      "finding_ids": [
+        "market-MKT-1-ITME-01"
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "market-MKT-1-MLA-01",
+      "technology": "MLA",
+      "criterion": "MKT-1",
+      "claim": "예시 주장",
+      "polarity": "neutral",
+      "evidence": [
+        {
+          "ref_id": "https://example.com/mla",
+          "quote": "MLA 예시 인용문",
+          "source_type": "web",
+          "source_nature": "산업 뉴스·리포트",
+          "is_self_reported": false,
+          "title": "예시 웹 문서 (MLA)",
+          "author_or_org": "예시 매체",
+          "venue": "예시 웹",
+          "date": "2026-01-01",
+          "url": "https://example.com/mla",
+          "locator": null,
+          "summary": "예시 요약"
+        }
+      ],
+      "conditions": null,
+      "confidence": "medium"
+    },
+    {
+      "id": "market-MKT-1-ITME-01",
+      "technology": "ITME",
+      "criterion": "MKT-1",
+      "claim": "예시 주장",
+      "polarity": "neutral",
+      "evidence": [
+        {
+          "ref_id": "https://example.com/itme",
+          "quote": "ITME 예시 인용문",
+          "source_type": "web",
+          "source_nature": "산업 뉴스·리포트",
+          "is_self_reported": false,
+          "title": "예시 웹 문서 (ITME)",
+          "author_or_org": "예시 매체",
+          "venue": "예시 웹",
+          "date": "2026-01-01",
+          "url": "https://example.com/itme",
+          "locator": null,
+          "summary": "예시 요약"
+        }
+      ],
+      "conditions": null,
+      "confidence": "medium"
+    }
+  ],
+  "dissent": [],
+  "gaps": [
+    "예시: 확인하지 못한 항목"
+  ]
+}

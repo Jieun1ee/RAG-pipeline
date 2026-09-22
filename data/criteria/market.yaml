@@ -1,0 +1,35 @@
+# 시장성 항목. 채택을 막을 만한 요인이 있는지, 있다면 풀릴 길이 근거로 보이는지를 본다.
+perspective: market
+name: 시장성
+basis: 미국 에너지부 ARL(Adoption Readiness Level)의 채택 위험 차원
+result_type: level            # level | trl | narrative
+level_axis: 채택 위험
+levels:
+  낮음: 공개 근거상 해당 차원이 채택을 막지 않는다
+  중간: 제약이 확인되지만, 지원 확대나 제품 출시 계획처럼 해소 경로가 근거로 확인된다
+  높음: 제약이 확인되고 해소 경로를 보여 주는 근거가 없다
+items:
+  - id: MKT-1
+    name: 시장 수요와 채택 현황
+    basis: 시장 수용 · Demand Maturity / Market Openness
+    question: 실제 도입 사례, 제품 출시 발표로 수요가 확인되는가
+  - id: MKT-2
+    name: 가치 제안과 비용 효과
+    basis: 가치 제안 · Delivered Cost / Functional Performance
+    question: 도입 시 비용 절감이나 성능 향상이 정량적으로 확인되는가. 그 수치가 실제 운영 조건에서 재현되는가
+  - id: MKT-3
+    name: 제조·공급망 준비도
+    basis: 자원 성숙도 · Manufacturing and Supply Chain
+    question: 양산·공급 체계와 공급자가 확보되어 있는가 (SW는 구현체·유지보수 주체)
+  - id: MKT-4
+    name: 생태계와 상호운용성
+    basis: 가치 제안 · Ease of Use / Infrastructure
+    question: 기존 서빙 스택(프레임워크, 하드웨어, 운영 도구)과 호환되고 지원 도구·문서가 있는가
+  - id: MKT-5
+    name: 자본 흐름과 투자
+    basis: 자원 성숙도 · Capital Flow
+    question: 관련 투자, 제품 로드맵, 상용화 자금이 공개 근거로 확인되는가
+  - id: MKT-6
+    name: 규제·표준 환경
+    basis: 운영 허가 · Regulatory Environment / Policy Environment
+    question: "표준화(예: CXL 컨소시엄, 오픈소스 표준)가 진행되고 있는가. 규제·정책·수출 통제 장애가 있는가"

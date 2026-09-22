@@ -1,0 +1,67 @@
+# 기술 성숙도 단계. 단계마다 어느 수준의 근거가 있는지만 판정하고, 구간은 코드가 규칙으로 계산한다.
+# 아래쪽은 1단계부터 직접 근거가 끊기지 않고 이어진 데까지, 위쪽은 간접 근거라도 있는 가장 높은 단계다.
+# 직접 근거가 하나도 없으면 구간을 내지 않고 판단을 미룬다.
+perspective: trl
+name: 기술 성숙도
+basis: NASA/DoD TRL(Technology Readiness Level) 9단계를 SW·HW 기술에 맞게 해석. 공개 정보 기반 추정
+result_type: trl
+level_axis: 근거 수준
+levels:
+  direct: 그 단계의 활동(실험, 시연, 배포)을 직접 보여 주는 공개 근거가 있다
+  indirect: 그 단계에 도달했음을 간접적으로 시사하는 근거(제품 발표, 로드맵, 제3자 언급)만 있다
+  none: 그 단계에 대한 근거가 없다
+items:
+  - id: TRL-1
+    name: 기본 원리 관찰·보고
+    basis: 기초 연구. 원리가 관찰되고 보고됨
+    question: 기술의 기본 원리(잠재 압축, 계층 메모리)가 논문이나 보고서로 공개되었는가
+    sw_evidence: 원리를 설명하는 논문, 기술 블로그
+    hw_evidence: 원리·아키텍처를 설명하는 논문, 백서
+  - id: TRL-2
+    name: 기술 개념·응용 분야 정립
+    basis: 실용적 응용이 개념 수준으로 정의됨
+    question: LLM 서빙에 적용하는 구체적 개념과 기대 효과가 정의되어 있는가
+    sw_evidence: 시스템 설계 자료, 아키텍처 제안
+    hw_evidence: 시스템 설계 제안, 인터페이스 규격 참조
+  - id: TRL-3
+    name: 핵심 기능 실험적 검증
+    basis: 개념 증명(PoC). 핵심 기능이 실험으로 확인됨
+    question: 소규모 실험이나 시뮬레이션으로 핵심 효과(메모리 절감, 확장)가 확인되었는가
+    sw_evidence: 소규모 모델 실험, ablation
+    hw_evidence: 시뮬레이터·에뮬레이터 실험
+  - id: TRL-4
+    name: 실험실 환경 구성 요소 검증
+    basis: 구성 요소가 실험실 환경에서 통합·검증됨
+    question: 실제 모델·하드웨어 구성 요소로 실험실 수준의 통합 검증이 있는가
+    sw_evidence: 실제 규모 모델 학습·추론 실험
+    hw_evidence: FPGA·시제품 보드 실험
+  - id: TRL-5
+    name: 유사 환경 구성 요소 검증
+    basis: 실제와 유사한 환경에서 구성 요소 검증
+    question: 실제 서빙과 유사한 환경(멀티 GPU, 실제 트래픽 패턴)에서 검증되었는가
+    sw_evidence: 서빙 프레임워크 통합, 벤치마크
+    hw_evidence: 실제 CXL 장치·서버에서의 측정
+  - id: TRL-6
+    name: 유사 환경 시스템 시연
+    basis: 시스템·서브시스템 수준 시연
+    question: 전체 시스템 수준으로 유사 환경에서 시연되었는가
+    sw_evidence: 공개 모델 배포, 오픈소스 서빙 엔진 지원
+    hw_evidence: 시스템 데모, 파트너 시연
+  - id: TRL-7
+    name: 실제 운용 환경 시제품 시연
+    basis: 운용 환경에서 시제품 시연
+    question: 실제 데이터센터·서비스 환경에서 시제품이 시연되었는가
+    sw_evidence: 실제 서비스(API) 운영
+    hw_evidence: 고객 사이트 파일럿, 샘플 출하
+  - id: TRL-8
+    name: 실제 시스템 완성·검증
+    basis: 시스템이 완성되고 검증됨
+    question: 상용 수준으로 완성되어 검증·인증되었는가
+    sw_evidence: 안정 버전 릴리스, 다수 프레임워크 채택
+    hw_evidence: 양산 발표, 규격 인증
+  - id: TRL-9
+    name: 실제 운용 환경 검증 완료
+    basis: 실제 운용에서 성공적으로 검증됨
+    question: 다수의 실제 운용 환경에서 검증이 완료되었는가
+    sw_evidence: 광범위한 상용 서비스 적용
+    hw_evidence: 대량 양산·다수 고객 배치

@@ -1,0 +1,24 @@
+[
+  {
+    "id": "deepseek-v2:p1:0",
+    "text": "예시 청크 본문. MLA 예시 인용문. 뒤에 이어지는 예시 문장.",
+    "source_type": "paper",
+    "title": "DeepSeek-V2: A Strong, Economical, and Efficient Mixture-of-Experts Language Model",
+    "url": "https://arxiv.org/abs/2405.04434",
+    "date": "2024",
+    "author_or_org": "DeepSeek-AI",
+    "page": 1,
+    "doc_id": "deepseek-v2"
+  },
+  {
+    "id": "itme:p1:0",
+    "text": "예시 청크 본문. ITME 예시 인용문. 뒤에 이어지는 예시 문장.",
+    "source_type": "paper",
+    "title": "ITME: Inference Tiered Memory Expansion with Disaggregated CXL-Hybrid Memories",
+    "url": "https://arxiv.org/abs/2606.12556",
+    "date": "2026",
+    "author_or_org": "Jang, H. et al. (SK hynix)",
+    "page": 1,
+    "doc_id": "itme"
+  }
+]
