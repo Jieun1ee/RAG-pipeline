@@ -1,0 +1,30 @@
+# 실행에 필요한 설정. 값을 바꾸면 코드를 고치지 않고 동작을 조절할 수 있다.
+
+models:
+  generator: "gpt-4.1-mini"        # 글을 쓰는 모델. `python -m core.llm --list`로 쓸 수 있는 이름을 확인한다
+  judge: "gpt-4o-mini"           # 판정하는 모델. 생성과 다른 계열로 두어야 자기 글을 그대로 통과시키지 않는다
+  temperature: 0
+
+retry:                 # 검사에 걸렸을 때 다시 시도할 횟수. 시험 삼아 돌릴 때는 0이나 1로 낮춘다
+  retrieval: 2
+  citation: 2
+  synthesis: 2
+  report: 2
+
+retrieval:
+  top_k: 6             # 질의 하나가 가져올 검색 결과 수
+  rrf_k: 60            # 두 검색 순위를 합칠 때 쓰는 상수. 클수록 등수 차이를 완만하게 본다
+  web_max_results: 5
+
+execution:
+  technologies: [MLA, ITME]
+  criteria_limit: null # 숫자를 넣으면 관점마다 앞쪽 기준만 본다. 전체를 돌리기 전 확인용
+
+cache:
+  enabled: true
+  dir: outputs/cache
+
+paths:
+  registry: data/registry.yaml
+  index_dir: outputs/index
+  report: outputs/report.md
