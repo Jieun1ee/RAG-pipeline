@@ -27,6 +27,9 @@ log = logging.getLogger(__name__)
 MODEL_NAME = "BAAI/bge-m3"
 _model: Any = None
 _model_lock = Lock()
+# 인코딩도 한 번에 하나씩만 한다. 여러 worker 스레드가 같은 모델로 동시에 인코딩하면 mps에서 예고 없이 멈춘다.
+# 질의 인코딩은 한 번에 0.1초 남짓이라 줄을 세워도 전체 시간에는 거의 영향이 없다.
+_encode_lock = Lock()
 
 
 @dataclass
@@ -75,9 +78,11 @@ def encode(texts: list[str], batch_size: int = 8, max_length: int = 1024) -> tup
 
     벡터는 길이를 1로 맞춰 둔다. 그래야 내적만으로 코사인 유사도를 얻을 수 있다.
     """
-    out = model().encode(
-        texts, batch_size=batch_size, max_length=max_length, return_dense=True, return_sparse=True, return_colbert_vecs=False
-    )
+    embedder = model()
+    with _encode_lock:
+        out = embedder.encode(
+            texts, batch_size=batch_size, max_length=max_length, return_dense=True, return_sparse=True, return_colbert_vecs=False
+        )
     dense = np.asarray(out["dense_vecs"], dtype=np.float32)
     dense /= np.clip(np.linalg.norm(dense, axis=1, keepdims=True), 1e-12, None)
     sparse = [{str(k): float(v) for k, v in weights.items()} for weights in out["lexical_weights"]]
