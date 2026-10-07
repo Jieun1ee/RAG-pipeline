@@ -5,9 +5,11 @@
 묶으면 다시 여기로 돌아와 다음 회차를 정한다.
 
     ① 기술 조사      코드가 기술 조사 기준 × 기술을 모두 보낸다. 뒤 계획의 배경 자료라 LLM이 고르지 않는다
-    ② 관점 평가 계획  LLM이 task마다 출처와 검색 초점을 정한다. 빠진 기준 × 기술은 코드가 채운다
-    ③ 재계획         빈 곳(한쪽 근거만 나온 관점, 근거를 끝내 못 찾은 task)만 골라 추가 task를 보낸다
-    ④ 품질 보완    보고서 검사가 추가 근거를 요청하면 해당 관점·기술만 다시 보낸다
+    ② 관점 평가 계획  LLM이 조사할 기준을 고르고 task마다 출처와 검색 초점을 정한다. 코드는 대칭(고른 기준은
+                     모든 기술에), 관점별 최소 기준 수, 전부 넣을 관점(TRL)만 강제한다
+    ③ 재계획         빈 곳(한쪽 근거만 나온 관점, 근거를 끝내 못 찾은 task)만 골라 추가 task를 보낸다.
+                     ②에서 고른 기준 안에서만 메운다
+    ④ 품질 보완    보고서 검사가 추가 근거를 요청하면 해당 관점·기술만 다시 보낸다. ②에서 고른 기준 안에서만 메운다
     ⑤ 종료           더 보낼 것이 없거나 상한에 닿으면 종합으로 넘긴다
 
 어느 회차든 실행이 예외로 끝난(error) task가 있으면, 다음 회차로 가기 전에 그것부터 다시 보낸다.
@@ -23,6 +25,7 @@ from typing import Any
 from langgraph.types import Send
 
 from agents.perspective import STATE_KEY
+from agents.synthesis import evaluated_criteria
 from core import config, llm, prompts
 from core.schemas import Plan, PlannedTask, TaskSpec, task_id_of
 from core.state import MainState
@@ -101,7 +104,7 @@ def tech_round(state: MainState) -> list[dict]:
 
 
 def required_pairs(state: MainState) -> dict[tuple[str, str, str], dict]:
-    """계획에 반드시 들어가야 하는 (관점, 기준 id, 기술)과 그 기준 원문."""
+    """계획에 넣을 수 있는 (관점, 기준 id, 기술) 전체와 그 기준 원문. 이 중 무엇을 넣을지는 계획이 고른다."""
     return {
         (perspective, item["id"], technology): item
         for perspective in EVAL_PERSPECTIVES
@@ -127,16 +130,41 @@ def default_plan(state: MainState) -> Plan:
     )
 
 
-def cover(state: MainState, plan: Plan) -> tuple[list[dict], dict[str, list[str]]]:
-    """LLM 계획을 검사해 빠짐없는 일감 목록으로 만든다.
+def _selected_criteria(state: MainState, chosen: dict[tuple[str, str, str], PlannedTask]) -> set[tuple[str, str]]:
+    """계획에 넣을 (관점, 기준 id). LLM이 고른 기준에 코드가 강제하는 기준을 더한다.
 
-    목록에 없는 짝은 버리고, 같은 짝이 두 번 오면 앞의 것만 쓰고, 빠진 짝은 기본값으로 채운다.
-    두 기술에 같은 기준을 모두 적용한다는 원칙을 LLM이 아니라 코드가 지키게 하려는 것이다.
-    무엇을 고쳤는지 돌려줘 결정 로그에 남긴다.
+    전부 넣을 관점은 모든 기준을, 나머지 관점은 고른 수가 최소에 못 미치면 기준 파일 순서대로 채운다.
+    """
+    orchestration = config.get()["orchestration"]
+    full = set(orchestration.get("full_coverage", []))
+    minimum = int(orchestration.get("min_criteria_per_perspective", 1))
+    selected = {(perspective, criterion_id) for perspective, criterion_id, _ in chosen}
+    for perspective in EVAL_PERSPECTIVES:
+        items = _items(state, perspective)
+        if perspective in full:
+            selected |= {(perspective, item["id"]) for item in items}
+            continue
+        count = sum((perspective, item["id"]) in selected for item in items)
+        for item in items:
+            if count >= minimum:
+                break
+            if (perspective, item["id"]) not in selected:
+                selected.add((perspective, item["id"]))
+                count += 1
+    return selected
+
+
+def cover(state: MainState, plan: Plan) -> tuple[list[dict], dict[str, list[str]]]:
+    """LLM 계획을 검사해 일감 목록으로 만든다.
+
+    목록에 없는 짝은 버리고, 같은 짝이 두 번 오면 앞의 것만 쓴다. 어떤 기준을 조사할지는 LLM이 고른 대로
+    두되, 세 가지만 코드가 지킨다. 고른 기준은 모든 기술에 적용하고(대칭), 관점마다 최소 기준 수를 채우고,
+    전부 넣을 관점은 모든 기준을 넣는다. 두 기술에 같은 기준을 적용한다는 원칙을 LLM에 맡기지 않으려는 것이다.
+    무엇을 고쳤는지 돌려줘 결정 로그에 남긴다. mirrored는 대칭 보정, filled는 최소 수와 전부 넣을 관점 보정이다.
     """
     required = required_pairs(state)
     chosen: dict[tuple[str, str, str], PlannedTask] = {}
-    fixes: dict[str, list[str]] = {"unknown": [], "duplicate": [], "filled": []}
+    fixes: dict[str, list[str]] = {"unknown": [], "duplicate": [], "mirrored": [], "filled": []}
     for task in plan.tasks:
         key = (task.perspective, task.criterion_id, task.technology)
         if key not in required:
@@ -145,16 +173,24 @@ def cover(state: MainState, plan: Plan) -> tuple[list[dict], dict[str, list[str]
             fixes["duplicate"].append("-".join(key))
         else:
             chosen[key] = task
+    selected = _selected_criteria(state, chosen)
     specs = []
     for key, item in required.items():
+        perspective, criterion_id, technology = key
+        if (perspective, criterion_id) not in selected:
+            continue
         task = chosen.get(key)
+        source = task.source_type if task else DEFAULT_SOURCE[perspective]
         if task is None:
-            fixes["filled"].append("-".join(key))
-        perspective, _, technology = key
+            # 같은 기준을 다른 기술에 고른 일이 있으면 그 출처를 따른다. 초점은 기술마다 달라 기준 질문을 쓴다
+            sibling = next((chosen[(perspective, criterion_id, t)] for t in _technologies() if (perspective, criterion_id, t) in chosen), None)
+            if sibling is not None:
+                source = sibling.source_type
+            fixes["mirrored" if sibling else "filled"].append("-".join(key))
         specs.append(
             _spec(
                 state, perspective, item, technology,
-                source=task.source_type if task else DEFAULT_SOURCE[perspective],
+                source=source,
                 focus=(task.focus.strip() if task else "") or item.get("question", ""),
                 round_=0,
             )
@@ -194,7 +230,8 @@ def eval_round(state: MainState) -> tuple[list[dict], str, dict[str, list[str]]]
             technologies=_format_technologies(state),
             tech_summary=_format_summary(state),
             criteria=_format_criteria(state),
-            task_count=len(required_pairs(state)),
+            min_criteria=int(config.get()["orchestration"].get("min_criteria_per_perspective", 1)),
+            full_coverage=", ".join(config.get()["orchestration"].get("full_coverage", [])) or "(없음)",
         )
         plan = llm.generate(prompt, Plan)
     if plan is None:
@@ -254,12 +291,23 @@ def _previous(state: MainState, perspective: str, criterion_id: str, technology:
     return None
 
 
+def _evaluated_items(state: MainState, perspective: str) -> list[dict]:
+    """관점에서 첫 계획이 고른 기준. 재계획은 이 안에서만 메운다.
+
+    고르지 않은 기준을 재계획에서 한 기술에만 넣으면 두 기술에 같은 기준을 적용한다는 원칙이 깨진다.
+    판정된 기준이 하나도 없으면(결과가 아직 없는 경우) 관점의 기준 전체를 쓴다.
+    """
+    evaluated = evaluated_criteria(state)
+    items = [item for item in _items(state, perspective) if item["id"] in evaluated]
+    return items or _items(state, perspective)
+
+
 def _format_gaps(state: MainState, gaps: list[dict]) -> str:
     lines = []
     for gap in gaps:
         perspective, technology = gap["perspective"], gap["technology"]
         if gap["kind"] == "balance":
-            candidates = ", ".join(item["id"] for item in _items(state, perspective))
+            candidates = ", ".join(item["id"] for item in _evaluated_items(state, perspective))
             missing = "와 ".join({"strength": "강점", "limitation": "한계"}[m] for m in gap["missing"])
             lines.append(f"- balance | {perspective} | 기준 후보: {candidates} | {technology} | 사유: {missing} 방향의 검증된 근거가 없다")
         elif gap["kind"] == "gave_up":
@@ -269,7 +317,7 @@ def _format_gaps(state: MainState, gaps: list[dict]) -> str:
                 f"이전: {spec['source_type']}, \"{spec.get('focus') or ''}\" | 사유: 재시도 상한까지 검증된 근거를 찾지 못했다"
             )
         else:
-            candidates = ", ".join(item["id"] for item in _items(state, perspective))
+            candidates = ", ".join(item["id"] for item in _evaluated_items(state, perspective))
             lines.append(
                 f"- report_quality | {perspective} | 기준 후보: {candidates} | {technology} | "
                 f"사유: {gap.get('reason', '보고서 품질을 위한 근거가 부족하다')}"
@@ -284,7 +332,7 @@ def fallback_followups(state: MainState, gaps: list[dict]) -> Plan:
     for gap in gaps:
         perspective, technology = gap["perspective"], gap["technology"]
         if gap["kind"] in ("balance", "quality"):
-            item = _items(state, perspective)[0]
+            item = _evaluated_items(state, perspective)[0]
             previous = _previous(state, perspective, item["id"], technology)
             source = flip[previous["source_type"]] if previous else DEFAULT_SOURCE[perspective]
             if gap["kind"] == "balance":
@@ -303,13 +351,14 @@ def fallback_followups(state: MainState, gaps: list[dict]) -> Plan:
 def select_followups(state: MainState, plan: Plan, gaps: list[dict], round_: int) -> tuple[list[dict], list[str]]:
     """재계획을 검사해 보낼 일감만 남긴다.
 
-    빈 곳 목록에 없는 짝, 직전과 출처·초점이 똑같은 task(캐시 때문에 같은 결과가 나온다), 같은 짝의
-    중복은 버린다. 상한을 넘으면 balance와 보고서 품질을 메우는 task를 먼저 남긴다.
+    빈 곳 목록에 없는 짝, 첫 계획에서 고르지 않은 기준, 직전과 출처·초점이 똑같은 task(캐시 때문에 같은
+    결과가 나온다), 같은 짝의 중복은 버린다. 상한을 넘으면 balance와 보고서 품질을 메우는 task를 먼저 남긴다.
     """
     balance = {(g["perspective"], g["technology"]) for g in gaps if g["kind"] == "balance"}
     quality = {(g["perspective"], g["technology"]) for g in gaps if g["kind"] == "quality"}
     gave_up = {(g["perspective"], g["spec"]["criterion"]["id"], g["technology"]) for g in gaps if g["kind"] == "gave_up"}
     items = {(p, item["id"]): item for p in EVAL_PERSPECTIVES for item in _items(state, p)}
+    allowed = {(p, item["id"]) for p in EVAL_PERSPECTIVES for item in _evaluated_items(state, p)}
     dropped: list[str] = []
     kept: dict[str, tuple[bool, dict]] = {}
     for task in plan.tasks:
@@ -317,6 +366,9 @@ def select_followups(state: MainState, plan: Plan, gaps: list[dict], round_: int
         is_balance = (task.perspective, task.technology) in balance
         is_quality = (task.perspective, task.technology) in quality
         item = items.get((task.perspective, task.criterion_id))
+        if item is not None and (task.perspective, task.criterion_id) not in allowed:
+            dropped.append(f"{'-'.join(key)}: 첫 계획에서 고르지 않은 기준")
+            continue
         if item is None or not (is_balance or is_quality or key in gave_up):
             dropped.append(f"{'-'.join(key)}: 빈 곳 목록에 없음")
             continue

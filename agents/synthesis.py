@@ -38,14 +38,41 @@ def all_finding_ids(state: MainState, keys: tuple[str, ...]) -> dict[str, str]:
     return ids
 
 
+def evaluated_criteria(state: MainState) -> set[str]:
+    """실제로 판정까지 간 기준 id. 오케스트레이터가 고르지 않은 기준은 여기 없다.
+
+    기준 id는 관점마다 접두어가 달라(TRL-, MKT- 등) 관점을 나누지 않고 한 집합으로 모은다.
+    """
+    return {a["criterion"] for key in LABEL for a in state.get(key, {}).get("assessments", [])}
+
+
+def unevaluated_criteria(state: MainState) -> list[str]:
+    """기준 목록에 있지만 이번 실행에서 다루지 않은 기준. 보고서가 평가 범위를 밝히는 데 쓴다."""
+    evaluated = evaluated_criteria(state)
+    return [
+        f"{item['id']} {item.get('name', '')}".strip()
+        for spec in state.get("criteria", {}).values()
+        if isinstance(spec, dict) and "items" in spec
+        for item in spec["items"]
+        if item["id"] not in evaluated
+    ]
+
+
 def summarize_criteria(state: MainState) -> str:
-    """프롬프트에 넣을 기준 목록. 어떤 잣대로 본 결과인지 함께 보여 주려는 것이다."""
+    """프롬프트에 넣을 기준 목록. 어떤 잣대로 본 결과인지 함께 보여 주려는 것이다.
+
+    판정까지 간 기준만 싣는다. 고르지 않은 기준까지 보여 주면 모델이 그것을 근거가 없던 기준으로 읽는다.
+    """
+    evaluated = evaluated_criteria(state)
     lines = []
     for perspective, spec in state.get("criteria", {}).items():
         if not isinstance(spec, dict) or "items" not in spec:
             continue
+        items = [item for item in spec["items"] if item["id"] in evaluated]
+        if not items:
+            continue
         lines.append(f"## {spec.get('name', perspective)} ({perspective}, result_type={spec.get('result_type')})")
-        lines += [f"- {item['id']} {item.get('name', '')}" for item in spec["items"]]
+        lines += [f"- {item['id']} {item.get('name', '')}" for item in items]
     return "\n".join(lines)
 
 
