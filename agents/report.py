@@ -78,7 +78,6 @@ def format_reference(number: int, evidence: dict) -> str:
     """참고문헌 한 줄. 자료 종류마다 형식이 다르다.
 
     논문은 저자(연도). 제목. 발행처, 식별자.
-    특허는 출원인(연월). 특허명, 번호, 주소.
     웹은 기관 또는 작성자(연월일). 제목. 사이트명, 주소.
     """
     author = evidence.get("author_or_org") or "작성자 미상"
@@ -91,9 +90,6 @@ def format_reference(number: int, evidence: dict) -> str:
     if evidence.get("source_type") == "paper":
         tail = ", ".join(x for x in (venue, _identifier(url)) if x)
         return f"{head}. {tail}." if tail else f"{head}."
-    if evidence.get("source_type") == "patent":
-        tail = ", ".join(x for x in (venue, url) if x)
-        return f"{head}, {tail}" if tail else f"{head}."
     tail = ", ".join(x for x in (venue, url) if x)
     return f"{head}. {tail}" if tail else f"{head}."
 

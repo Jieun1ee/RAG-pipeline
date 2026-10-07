@@ -22,7 +22,9 @@ from __future__ import annotations
 import json
 import operator
 from pathlib import Path
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Any, TypedDict
+
+from core.schemas import TaskStatusName
 
 
 def merge(old: dict | None, new: dict | None) -> dict:
@@ -42,9 +44,6 @@ def merge_or_reset(old: dict | None, new: dict | None) -> dict:
     if new is None:
         return {}
     return merge(old, new)
-
-
-TaskStatusName = Literal["pending", "done", "gave_up", "error"]
 
 
 class TaskStatus(TypedDict):
