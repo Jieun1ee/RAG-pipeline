@@ -13,6 +13,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 import numpy as np
@@ -25,6 +26,7 @@ log = logging.getLogger(__name__)
 
 MODEL_NAME = "BAAI/bge-m3"
 _model: Any = None
+_model_lock = Lock()
 
 
 @dataclass
@@ -56,14 +58,16 @@ def device() -> str:
 
 
 def model() -> Any:
-    """임베딩 모델. 처음 부를 때 내려받아 올려 두고 이후 재사용한다."""
+    """임베딩 모델을 프로세스에서 한 번만 로딩하고 worker끼리 공유한다."""
     global _model
-    if _model is None:
-        from FlagEmbedding import BGEM3FlagModel
+    with _model_lock:
+        if _model is None:
+            from FlagEmbedding import BGEM3FlagModel
 
-        log.info("loading %s on %s", MODEL_NAME, device())
-        _model = BGEM3FlagModel(MODEL_NAME, use_fp16=False, devices=[device()])
-    return _model
+            target_device = device()
+            log.info("loading %s on %s", MODEL_NAME, target_device)
+            _model = BGEM3FlagModel(MODEL_NAME, use_fp16=False, devices=[target_device])
+        return _model
 
 
 def encode(texts: list[str], batch_size: int = 8, max_length: int = 1024) -> tuple[np.ndarray, list[dict[str, float]]]:
