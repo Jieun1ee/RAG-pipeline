@@ -297,6 +297,30 @@ class NeutralityJudgement(BaseModel):
     issues: list[str] = Field(default_factory=list, description="문제가 되는 문장을 그대로 담는다")
 
 
+class ReportQualityVerdict(BaseModel):
+    """보고서 품질 항목 하나에 대한 Judge 판정."""
+
+    passed: bool = Field(description="해당 품질 항목을 충족하면 참")
+    reason: str = Field(description="통과 또는 미달로 판단한 핵심 이유 한두 문장")
+    missing_evidence: bool = Field(
+        default=False,
+        description="보고서 표현 수정만으로 해결할 수 없고 검증된 근거를 추가로 찾아야 하면 참",
+    )
+    perspective: Literal["trl", "market", "stakeholder", "domain"] | None = Field(
+        default=None, description="근거가 부족한 평가 관점. 특정할 수 없으면 null"
+    )
+    technology: Tech | None = Field(default=None, description="근거가 부족한 기술. 특정할 수 없으면 null")
+
+
+class ReportQualityJudgement(BaseModel):
+    """실습 가이드의 네 가지 최소 보고서 품질 평가."""
+
+    groundedness: ReportQualityVerdict
+    neutrality: ReportQualityVerdict
+    bias_control: ReportQualityVerdict
+    perspective_coverage: ReportQualityVerdict
+
+
 class ReportDraft(BaseModel):
     """보고서 본문."""
 
