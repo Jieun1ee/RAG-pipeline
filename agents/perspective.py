@@ -179,6 +179,19 @@ def assess(perspective: str, spec: dict, item: dict, technology: str, findings: 
         rationale = " / ".join(f["claim"] for f in findings)[:800]
         return CriterionAssessment(**base, status="assessed", levels={}, rationale=rationale, finding_ids=finding_ids).model_dump()
 
+    if config.is_dry_run():
+        sample = next(
+            (a for a in load_fixture(STATE_KEY[perspective])["assessments"]
+             if a["criterion"] == item["id"] and a["technology"] == technology),
+            None,
+        )
+        return CriterionAssessment(
+            **base, status=sample["status"] if sample else "insufficient_evidence",
+            levels=sample["levels"] if sample else {},
+            rationale="[dry-run] 샘플 판정. 실제 근거 품질 평가는 수행하지 않음",
+            finding_ids=finding_ids,
+        ).model_dump()
+
     allowed = spec.get("levels") or {}
     prompt = prompts.render(
         "level_judge",
@@ -303,11 +316,14 @@ def aggregate(perspective: str, results: list[dict]) -> dict:
     """
     spec = load_one(perspective)
     items = {item["id"]: item for item in spec["items"]}
-    findings = [finding for result in results for finding in result["findings"]]
+    by_id = {f["id"]: f for result in results for f in result["findings"]}
+    findings = [by_id[fid] for fid in sorted(by_id)]
     gaps = [gap for result in results for gap in result["gaps"]]
     by_group: dict[tuple[str, str], list[dict]] = defaultdict(list)
     for result in results:
-        by_group[(result["criterion_id"], result["technology"])].extend(result["findings"])
+        by_group[(result["criterion_id"], result["technology"])]
+    for finding in findings:
+        by_group[(finding["criterion"], finding["technology"])].append(finding)
     assessments = [
         assess(perspective, spec, items[criterion_id], technology, group)
         for (criterion_id, technology), group in by_group.items()
