@@ -7,11 +7,14 @@ LANGSMITH_TRACING=true일 때만 동작한다. 키가 빠졌다면 본 실행을
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Any
 
 log = logging.getLogger(__name__)
+decision_log = logging.getLogger("decision")
 
 DEFAULT_PROJECT = "rag-pipeline"
 TRUE_VALUES = {"1", "true", "yes", "on"}
@@ -59,3 +62,21 @@ def run_config(*, dry_run: bool, mode: str) -> dict[str, Any]:
             "dry_run": dry_run,
         },
     }
+
+
+def log_decision(run_id: str, node: str, decision: str, reason: str, **detail: Any) -> None:
+    """흐름을 정한 결정 하나를 사유와 함께 남긴다.
+
+    결정 로그는 State에 넣지 않는다. 체크포인트마다 함께 저장되어 쌓이기만 하고, 다음 결정에 쓰이지도
+    않기 때문이다. 대신 run_id를 붙여 한 줄짜리 JSON으로 남기고, 같은 run_id로 State와 LangSmith
+    기록을 찾아 잇는다. detail에는 보낸 task 수처럼 결정을 되짚는 데 필요한 값만 넣는다.
+    """
+    record = {
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "run_id": run_id,
+        "node": node,
+        "decision": decision,
+        "reason": reason,
+        **detail,
+    }
+    decision_log.info(json.dumps(record, ensure_ascii=False))
