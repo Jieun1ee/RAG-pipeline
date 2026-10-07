@@ -26,12 +26,11 @@ import yaml
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from agents import checks, orchestrator, report, synthesis
-from agents import placeholder  # A의 worker·collect 구현이 들어오면 교체한다
+from agents import checks, collect, orchestrator, perspective, report, synthesis
 from agents.subgraph import counted
 from core import config
 from core.criteria import load_all
-from core.state import MainState
+from core.state import MainState, WorkerState
 
 EVAL_KEYS = ["tech_research", "trl_eval", "market_eval", "stakeholder_eval", "domain_eval"]
 
@@ -58,11 +57,16 @@ def stepped(fn: Callable[[MainState], MainState]) -> Callable[[MainState], MainS
     return wrapper
 
 
+def worker(state: WorkerState) -> MainState:
+    """orchestrator가 Send로 보낸 task 하나를 처리한다. 반환값은 task_results, task_status, errors뿐이다."""
+    return perspective.run_task(state["task"])
+
+
 # step_count를 세는 메인 노드. worker는 Send로만 불려 여기 넣지 않는다.
 NODES: dict[str, Callable[[MainState], MainState]] = {
     "select_tech": select_tech,
     "orchestrator": orchestrator.node,
-    "collect": placeholder.collect,
+    "collect": collect.node,
     "synthesis": synthesis.node,
     "synthesis_check": checks.synthesis_check,
     "report": report.node,
@@ -106,7 +110,7 @@ def build_graph(checkpointer=None) -> CompiledStateGraph:  # noqa: ANN001 - Lang
     workflow = StateGraph(MainState)
     for name, fn in NODES.items():
         workflow.add_node(name, counted(name, stepped(fn)))
-    workflow.add_node("worker", counted("worker", placeholder.worker))
+    workflow.add_node("worker", counted("worker", worker))
 
     workflow.add_edge(START, "select_tech")
     workflow.add_edge("select_tech", "orchestrator")
