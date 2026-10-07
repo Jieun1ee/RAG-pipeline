@@ -163,26 +163,19 @@ RRF는 Dense와 같은 검색 성공률을 유지하면서 정답 청크를 더 
 
 ## Agents
 
-조정 계층(오케스트레이터)과 실행 계층(worker)을 나눴다. worker끼리는 서로 통신하지 않고, 결과는 State를 거쳐 collect와 오케스트레이터로만 모인다.
-
-| 노드 | 역할 | 결과 |
-|---|---|---|
-| `select_tech` | 평가 대상, 평가 기준, 도메인을 상태에 올린다 | selected_tech, criteria, target_domain |
-| **`orchestrator`** | 회차마다 보낼 task를 정한다. ① 기술 조사(TECH-1~5 × 2기술, 코드가 전부 보냄) ② 관점 평가 계획(LLM이 기준·출처·초점 선택) ③ 빈 곳 재계획 ④ 보고서 품질 보완 ⑤ 종료. 결정과 사유는 결정 로그로 남긴다 | plan, task_status |
-| `worker` | task 하나(기준 1 × 기술 1)를 서브그래프로 처리한다. `Send`로 계획된 수만큼 동시에 뜬다 | task_results, task_status, errors |
-| `collect` | 한 회차 worker 결과를 관점별로 묶어 판정·균형 검사·TRL 추정을 하고 임시 결과를 비운다 | tech_research, trl_eval, market_eval, stakeholder_eval, domain_eval |
-| `synthesis` / `synthesis_check` | 관점 종합과 검사 | synthesis, synthesis_check |
-| `report` / `report_check` | 보고서 생성과 품질 평가(Hybrid 4항목) | final_report, report_check |
-
-worker가 맡는 관점과 검색 기본값은 아래와 같다. 오케스트레이터가 기준마다 출처를 바꿀 수 있다.
-
-| 관점 | 평가 내용 | 기준 | 기본 출처 | 결과 |
+| 에이전트 | 역할 | 기준 | 기본 출처 | 결과 |
 |---|---|---|---|---|
-| 기술 조사 | 기술별 개요, 메커니즘, 적용 범위, 한계, 보고 수치 | TECH-1~5 | RAG | PerspectiveResult |
-| 기술 성숙도 | 단계별 근거 수준 판정과 TRL 구간 추정 | TRL-1~9 | Web | TRLResult |
-| 시장성 | 채택 위험 수준(ARL 기반)과 근거 | MKT-1~6 | Web | PerspectiveResult |
-| 이해관계자 | 주체별 기대 효과와 도입 부담 | STK-1~5 | Web | PerspectiveResult |
-| 도메인 적용성 | 성능·확장성·비용·품질 영향 | DOM-1~8 | RAG | PerspectiveResult |
+| **Orchestrator** | 계획(조사할 기준·출처·검색 초점 선택), 빈 곳 재계획, 보고서 품질 보완, 종료 판단. 결정과 사유는 결정 로그로 남긴다 | — | — | plan, task_status |
+| 기술 조사 Agent | 기술별 개요, 메커니즘, 적용 범위, 한계, 보고 수치 | TECH-1~5 | RAG | PerspectiveResult |
+| 기술 성숙도 Agent | 단계별 근거 수준 판정과 TRL 구간 추정 | TRL-1~9 | Web | TRLResult |
+| 시장성 Agent | 채택 위험 수준(ARL 기반)과 근거 | MKT-1~6 | Web | PerspectiveResult |
+| 이해관계자 Agent | 주체별 기대 효과와 도입 부담 | STK-1~5 | Web | PerspectiveResult |
+| 도메인 적용성 Agent | 성능·확장성·비용·품질 영향 | DOM-1~8 | RAG | PerspectiveResult |
+| 평가 종합 Agent | 관점별 결과의 공통점과 상충점 종합, 종합 검사 | — | — | synthesis |
+| 보고서 생성 Agent | 템플릿 기반 평가 보고서 작성, 참고문헌은 코드가 조립 | — | — | final_report |
+| 보고서 품질 평가 | Hybrid 4항목 판정, rewrite/replan 결정 | — | — | report_check |
+
+관점 Agent 5개는 각자 역할 프롬프트(`prompts/perspective/*.md`)를 가지고, 오케스트레이터가 계획한 task(기준 1 × 기술 1) 수만큼 worker로 병렬 실행된다(`Send`). collect가 결과를 관점별로 모으며, Agent끼리는 직접 통신하지 않는다. 기본 출처는 오케스트레이터가 기준마다 바꿀 수 있다.
 
 ## State Schema
 
@@ -200,16 +193,21 @@ worker가 맡는 관점과 검색 기본값은 아래와 같다. 오케스트레
 
 ### 메인 그래프
 
-`graph.py`의 컴파일된 그래프(`graph.get_graph().draw_mermaid()`)와 같은 연결이다.
-
 ```mermaid
 flowchart TD
     S([시작]) --> A(기술 선정<br/>select_tech)
-    A --> O(오케스트레이터<br/>orchestrator<br/>계획·재계획·품질 보완·종료 판단)
-    O -.->|"pending task를 Send × N<br/>(N은 계획에 따라 달라짐)"| W(worker<br/>기준 1 × 기술 1)
-    W --> C(관점별 집계<br/>collect)
-    C --> O
-    O -.->|보낼 task 없음| F(평가 종합<br/>synthesis)
+    A --> O(오케스트레이터<br/>계획·재계획·품질 보완·종료 판단)
+    O -.->|"pending task를 Send × N<br/>(N은 계획에 따라 달라짐)"| AG
+    subgraph AG[관점 Agent · 병렬 실행]
+        direction LR
+        T1(기술 조사<br/>Agent · RAG)
+        T2(기술 성숙도<br/>Agent · Web)
+        T3(시장성<br/>Agent · Web)
+        T4(이해관계자<br/>Agent · Web)
+        T5(도메인 적용성<br/>Agent · RAG)
+    end
+    AG -.->|collect 후 빈 곳 재계획| O
+    AG -.->|보낼 task 없음| F(평가 종합<br/>synthesis)
     F --> FC(종합 검사<br/>synthesis_check)
     FC -.->|미통과, 상한 미만| F
     FC -.->|통과 또는 상한 도달| G(평가 보고서 생성<br/>report)
@@ -218,14 +216,16 @@ flowchart TD
     GC -.->|replan: 근거 부족 관점·기술| O
     GC -.->|통과 또는 상한 도달| Z([종료])
     classDef orch fill:#FCE7F3,stroke:#BE185D
-    classDef worker fill:#EEEDFE,stroke:#534AB7
+    classDef rag fill:#E1F5EE,stroke:#0F6E56
+    classDef web fill:#EEEDFE,stroke:#534AB7
     classDef check fill:#FAEEDA,stroke:#BA7517
     class O orch
-    class W,C worker
+    class T1,T5 rag
+    class T2,T3,T4 web
     class FC,GC check
 ```
 
-오케스트레이터는 회차마다 계획을 `plan`에 올리고, pending인 task만 worker로 보낸다. 같은 회차의 worker는 동시에 돌고(최대 8개), 모두 끝나면 collect가 한 번 돌아 오케스트레이터로 돌아간다. 점선은 State를 보고 정하는 조건부 분기다.
+오케스트레이터는 회차마다 계획을 `plan`에 올리고, pending인 task만 관점 Agent(worker)로 보낸다. 같은 회차의 worker는 동시에 돌고(최대 8개), 모두 끝나면 collect가 결과를 관점별로 모아 오케스트레이터로 돌아간다. 그림에서는 이 경로를 단순화했다. 실제 코드에서는 관점 Agent → collect → 오케스트레이터를 거쳐, 오케스트레이터가 더 보낼 task가 없다고 판단할 때 평가 종합으로 넘어간다. 점선은 State를 보고 정하는 조건부 분기다. 초록은 RAG, 보라는 웹 검색 기본 출처다.
 
 ### worker 내부 서브그래프
 
