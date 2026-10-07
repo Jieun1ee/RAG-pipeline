@@ -99,9 +99,9 @@ def build_tasks(perspective: str, state: MainState) -> list[dict]:
     ]
 
 
-def _search_fn(perspective: str) -> SearchFn:
-    """관점에 맞는 검색 함수. 외부 호출을 끈 모드에서는 샘플 결과를 돌려주는 함수를 준다."""
-    source = SOURCE[perspective]
+def _search_fn(source_type: str) -> SearchFn:
+    """계획이 지정한 출처로 검색한다. dry-run에서는 해당 출처의 샘플을 쓴다."""
+    source = "rag" if source_type == "paper" else "web"
     if config.is_dry_run():
         fixture = f"retrieved_{source}"
         return lambda query, k: [Retrieved.model_validate(r) for r in load_fixture(fixture)][:k]
@@ -115,11 +115,11 @@ def _search_fn(perspective: str) -> SearchFn:
     return lambda query, k: web.search(query, int(config.get()["retrieval"]["web_max_results"]))
 
 
-def _subgraph(perspective: str):
-    """관점에 맞는 검색과 인용 확인 방식을 끼운 서브그래프."""
-    check_citation = checks.rag_check if SOURCE[perspective] == "rag" else checks.web_check
+def _subgraph(perspective: str, source_type: str):
+    """계획의 출처에 맞는 검색과 인용 확인 방식을 끼운 서브그래프."""
+    check_citation = checks.rag_check if source_type == "paper" else checks.web_check
     return build_subgraph(
-        search=_search_fn(perspective),
+        search=_search_fn(source_type),
         check_citation=check_citation,
         role_prompt=f"perspective/{perspective}",
         perspective=perspective,
@@ -137,7 +137,7 @@ def run_task(task: dict | TaskSpec) -> MainState:
     if not isinstance(spec.criterion.get("id"), str) or not spec.criterion["id"].strip():
         raise ValueError("task.criterion.id는 비어 있지 않은 문자열이어야 한다")
     try:
-        out = _subgraph(spec.perspective).invoke({"task": spec.model_dump(mode="json")})
+        out = _subgraph(spec.perspective, spec.source_type).invoke({"task": spec.model_dump(mode="json")})
         # 기존 서브그래프와 dry-run fixture의 ID를 작업별 계약으로 맞춘다.
         findings = [
             {**finding, "id": f"{spec.task_id}-{number:02d}"}
