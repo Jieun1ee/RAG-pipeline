@@ -191,7 +191,7 @@ def _dry_run_report(state: MainState) -> str:
     lines = ["# SUMMARY", "", "모델 호출 없이 상태의 값만으로 채운 확인용 출력이다.", ""]
 
     lines += ["# 1. 분석 개요", "", "## 1.1 분석 배경 및 도메인 맥락", ""]
-    lines.append(f"- 평가 도메인: {criteria.get('domain_name', '(미지정)')}")
+    lines.append(f"- 평가 도메인: {state.get('target_domain') or '(미지정)'}")
     lines += ["", "## 1.2 분석 목적 및 범위", ""]
     lines.append(f"- 평가 대상: {', '.join(t.get('technology', '') for t in techs) or '(없음)'}")
     lines += ["", "## 1.3 평가 관점 및 기준", ""]

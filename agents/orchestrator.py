@@ -178,7 +178,7 @@ def _format_summary(state: MainState) -> str:
 
 
 def _domain(state: MainState) -> str:
-    return state.get("target_domain") or state.get("criteria", {}).get("domain_name", "")
+    return state.get("target_domain", "")
 
 
 def eval_round(state: MainState) -> tuple[list[dict], str, dict[str, list[str]]]:
