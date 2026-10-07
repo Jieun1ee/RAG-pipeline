@@ -12,7 +12,7 @@ import re
 
 import yaml
 
-from agents.synthesis import LABEL, summarize_result
+from agents.synthesis import LABEL, summarize_result, unevaluated_criteria
 from core import config, llm, prompts
 from core.schemas import ReportDraft
 from core.state import MainState
@@ -30,6 +30,9 @@ PERSPECTIVE_SECTIONS = (
 _CITATION = re.compile(r"\[(\d+)\]")
 _REFERENCE_HEADING = re.compile(r"^#{1,6}\s*REFERENCE.*$", re.MULTILINE | re.IGNORECASE)
 _ARXIV = re.compile(r"arxiv\.org/(?:abs|pdf)/([\w.\-/]+?)(?:v\d+)?/?$", re.IGNORECASE)
+# 주소 경로에 들어 있는 arXiv 번호(YYMM.NNNNN). arxiv.org의 abs·pdf·html뿐 아니라 alphaxiv, emergentmind처럼
+# 같은 논문을 옮겨 실은 사이트도 경로에 번호를 그대로 쓴다. 판(v1, v2)은 같은 논문으로 본다
+_ARXIV_ID = re.compile(r"/(\d{2}(?:0[1-9]|1[0-2])\.\d{4,5})(?:v\d+)?(?=[/?#.]|$)")
 
 
 # --- 참고문헌 -------------------------------------------------------------------
@@ -39,9 +42,13 @@ def source_key(evidence: dict) -> str:
     """같은 자료를 한 항목으로 묶는 열쇠.
 
     논문은 쪽마다 인용 id가 다르지만 출처는 문서 하나다. 문서 단위로 묶어야 같은 논문이
-    참고문헌에 여러 번 오르지 않는다. 웹은 주소가 곧 자료다.
+    참고문헌에 여러 번 오르지 않는다. 주소에 arXiv 번호가 있으면 논문 원문이든 웹에서 찾은
+    판본·옮겨 실은 페이지든 같은 논문으로 묶는다. 그 밖의 웹은 주소가 곧 자료다.
     """
     ref_id = evidence.get("ref_id", "")
+    match = _ARXIV_ID.search(evidence.get("url") or "")
+    if match:
+        return f"arxiv:{match.group(1)}"
     if evidence.get("source_type") == "paper" and ":" in ref_id:
         return ref_id.split(":", 1)[0]
     return evidence.get("url") or ref_id
@@ -51,7 +58,8 @@ def build_references(state: MainState) -> tuple[dict[str, int], dict[int, dict]]
     """모든 서술의 인용을 훑어 자료마다 번호를 매긴다.
 
     인용 id로 번호를 찾는 표와, 번호로 자료를 찾는 표를 함께 돌려준다. 한 자료를 여러 서술이
-    인용해도 번호는 하나다.
+    인용해도 번호는 하나다. 같은 논문이 논문 원문과 웹 페이지로 함께 인용되면 목록에는 논문
+    원문의 서지 정보를 싣는다.
     """
     numbers: dict[str, int] = {}
     entries: dict[int, dict] = {}
@@ -63,6 +71,8 @@ def build_references(state: MainState) -> tuple[dict[str, int], dict[int, dict]]
                 key_of_source = source_key(ev)
                 if key_of_source not in by_source:
                     by_source[key_of_source] = len(by_source) + 1
+                    entries[by_source[key_of_source]] = ev
+                elif ev.get("source_type") == "paper" and entries[by_source[key_of_source]].get("source_type") != "paper":
                     entries[by_source[key_of_source]] = ev
                 numbers[ev["ref_id"]] = by_source[key_of_source]
     return numbers, entries
@@ -101,10 +111,13 @@ def strip_reference_section(markdown: str) -> str:
 
 
 def attach_references(body: str, entries: dict[int, dict]) -> str:
-    """본문에 실제로 나온 번호만 모아 참고문헌 절을 붙인다."""
+    """본문에 실제로 나온 번호만 모아 참고문헌 절을 붙인다.
+
+    항목 사이에 빈 줄을 둔다. 줄바꿈 하나로만 이으면 마크다운과 PDF 모두 한 문단으로 합쳐 보인다.
+    """
     cited = sorted({int(n) for n in _CITATION.findall(body) if int(n) in entries})
     lines = [format_reference(n, entries[n]) for n in cited]
-    return body.rstrip() + "\n\n# REFERENCE\n\n" + ("\n".join(lines) if lines else "(본문에 인용된 출처가 없다)") + "\n"
+    return body.rstrip() + "\n\n# REFERENCE\n\n" + ("\n\n".join(lines) if lines else "(본문에 인용된 출처가 없다)") + "\n"
 
 
 # --- 프롬프트 입력 ---------------------------------------------------------------
@@ -145,6 +158,10 @@ def node(state: MainState) -> MainState:
     results = "\n\n".join(_format_result(key, state.get(key, {}), numbers) for key, _ in PERSPECTIVE_SECTIONS)
     gaps = [f"({LABEL.get(key, key)}) {gap}" for key in RESULT_KEYS for gap in state.get(key, {}).get("gaps", [])]
     gaps += [f"(종합 검증 미해결) {issue}" for issue in state.get("synthesis_check", {}).get("issues", [])]
+    skipped = unevaluated_criteria(state)
+    if skipped:
+        # 근거가 없던 기준과 다루지 않은 기준은 다르다. 평가 범위를 숨기지 않도록 따로 밝힌다
+        gaps.append(f"(평가 범위) 오케스트레이터가 이번 실행에서 다루지 않은 기준: {', '.join(skipped)}")
     feedback = "\n".join(state.get("report_check", {}).get("issues", [])) or "(없음)"
 
     prompt = prompts.render(
