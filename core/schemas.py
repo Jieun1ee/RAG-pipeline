@@ -44,7 +44,7 @@ class Evidence(BaseModel):
 
     ref_id: str  # 인용한 Retrieved의 id와 같아야 한다
     quote: str  # 원문 그대로. 논문이면 청크 본문 안에 있어야 한다
-    source_type: Literal["paper", "web", "patent"]
+    source_type: Literal["paper", "web"]
     source_nature: Literal["논문", "기업 공식 자료", "산업 뉴스·리포트", "개발자 의견"]
     is_self_reported: bool  # 그 기술을 만든 쪽이 직접 발표한 자료인지
     title: str
@@ -63,7 +63,7 @@ class Finding(BaseModel):
     종합 단계에서만 하고, 이 단계에서는 각 기술을 따로 기술한다.
     """
 
-    id: str  # 예: market-MKT-1-ITME-01
+    id: str  # "{task_id}-{순번}". 예: market-MKT-1-ITME-01
     technology: Tech
     criterion: str  # 평가 기준 id
     claim: str
@@ -74,7 +74,7 @@ class Finding(BaseModel):
 
 
 class CriterionAssessment(BaseModel):
-    """기준 하나와 기술 하나에 대한 판정. 서브그래프를 한 번 돌리면 하나가 나온다."""
+    """기준 하나와 기술 하나에 대한 판정. collect가 worker 결과를 관점별로 묶을 때 하나씩 만든다."""
 
     id: str  # 예: MKT-1-ITME
     criterion: str
@@ -141,6 +141,79 @@ class CheckResult(BaseModel):
     passed: bool
     issues: list[str] = []
     attempt: int = 0
+
+
+# --- 오케스트레이터와 worker 사이의 계약 --------------------------------------------
+# 오케스트레이터는 TaskSpec을 Send로 보내고, worker는 worker_update()가 만든 값만 돌려준다.
+# 두 쪽을 따로 만들기 때문에 서로의 코드를 보지 않고 이 절의 형식과 규칙만 믿고 맞춘다.
+#
+# task_id   "{관점}-{기준 id}-{기술}". 재계획에서 추가된 task는 뒤에 "-r{회차}"를 붙인다.
+#           예: market-MKT-1-ITME, market-MKT-1-ITME-r1
+# Finding   id는 "{task_id}-{순번 두 자리}". 회차가 다른 task의 서술끼리 id가 겹치지 않는다.
+# 상태 값   pending  오케스트레이터가 보냈고 아직 끝나지 않았다. 보낼 때 오케스트레이터가 쓴다
+#           done     worker가 끝났고 검증을 통과한 서술이 하나 이상 있다
+#           gave_up  worker가 끝났지만 재시도 상한에 닿아 서술이 없다. 다시 보내지 않고 gap으로 남긴다
+#           error    worker 실행이 예외로 끝났다. 다시 보내기 상한 안에서만 다시 보낸다
+
+TaskStatusName = Literal["pending", "done", "gave_up", "error"]
+
+
+def task_id_of(perspective: str, criterion_id: str, technology: str, round: int = 0) -> str:  # noqa: A002
+    """task_id 규칙을 한곳에 둔다. 0회차는 접미사 없이 쓴다."""
+    base = f"{perspective}-{criterion_id}-{technology}"
+    return base if round == 0 else f"{base}-r{round}"
+
+
+class TaskSpec(BaseModel):
+    """worker 하나가 받는 일감. 오케스트레이터가 계획을 이 형식으로 풀어 Send에 싣는다."""
+
+    task_id: str
+    perspective: Perspective
+    technology: Tech
+    tech_name: str  # 등록 정보의 정식 이름. 약칭만으로 웹을 찾으면 엉뚱한 것이 걸린다
+    criterion: dict  # 기준 YAML 항목 그대로 (id, name, question 등)
+    source_type: Literal["paper", "web"]
+    focus: str | None = None  # 오케스트레이터가 정한 검색 초점. 없으면 기준 질문만으로 질의를 만든다
+    tech_summary: str = ""  # 기술 조사 결과 중 이 기술에 대한 것. 기술 조사 task에서는 비어 있다
+    levels: dict = {}  # 관점의 수준 정의
+    round: int = 0  # 0은 첫 계획, 1부터는 재계획에서 추가된 task
+    attempt: int = 1  # 이 task를 보낸 횟수. worker는 상태를 돌려줄 때 이 값을 그대로 싣는다
+
+
+class TaskOutput(BaseModel):
+    """worker 하나의 결과. task_results[task_id]에 들어가고 collect가 관점별로 묶는다."""
+
+    perspective: Perspective
+    technology: Tech
+    criterion_id: str
+    findings: list[Finding] = []
+    gaps: list[str] = []
+
+
+def worker_update(spec: TaskSpec, *, findings: list[dict], gaps: list[str], error: str | None = None) -> dict:
+    """worker가 그래프에 돌려줄 값. worker는 이 함수의 결과만 반환한다.
+
+    돌려주는 키는 reducer가 붙은 task_results, task_status, errors 셋뿐이다. 다른 키를 쓰면
+    동시에 끝난 worker끼리 충돌한다. 상태는 위 규칙대로 error, done, gave_up 순으로 정한다.
+    """
+    if error is not None:
+        status: TaskStatusName = "error"
+    else:
+        status = "done" if findings else "gave_up"
+    output = TaskOutput(
+        perspective=spec.perspective,
+        technology=spec.technology,
+        criterion_id=spec.criterion["id"],
+        findings=findings,
+        gaps=gaps,
+    )
+    update: dict[str, Any] = {
+        "task_results": {spec.task_id: output.model_dump(mode="json")},
+        "task_status": {spec.task_id: {"status": status, "attempt": spec.attempt}},
+    }
+    if error is not None:
+        update["errors"] = {spec.task_id: error}
+    return update
 
 
 # 아래는 모델 응답을 받기 위한 형식이다. 상태에 그대로 들어가지 않고,

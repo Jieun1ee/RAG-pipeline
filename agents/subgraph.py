@@ -29,7 +29,7 @@ from langgraph.graph.state import CompiledStateGraph
 from agents import checks
 from core import config, llm, prompts
 from core.schemas import CheckResult, FindingDraft, FindingList, QueryPair, RelevanceJudgement, Retrieved
-from core.state import SubState, load_fixture
+from core.state import WorkerState, load_fixture
 
 log = logging.getLogger(__name__)
 
@@ -130,10 +130,10 @@ def _queries_to_str(pair: QueryPair | None, task: dict) -> str:
     return "\n".join(q.strip() for q in (pair.effect, pair.limitation) if q and q.strip())
 
 
-def _query_gen(role_prompt: str, perspective: str) -> Callable[[SubState], SubState]:
+def _query_gen(role_prompt: str, perspective: str) -> Callable[[WorkerState], WorkerState]:
     """기준을 검색 질의로 바꾸는 노드를 만든다."""
 
-    def query_gen(state: SubState) -> SubState:
+    def query_gen(state: WorkerState) -> WorkerState:
         task = state["task"]
         if config.is_dry_run():
             return {"query": f"[dry-run] {task['technology']} {task['criterion']['id']}"}
@@ -143,10 +143,10 @@ def _query_gen(role_prompt: str, perspective: str) -> Callable[[SubState], SubSt
     return query_gen
 
 
-def _search(search: SearchFn) -> Callable[[SubState], SubState]:
+def _search(search: SearchFn) -> Callable[[WorkerState], WorkerState]:
     """넘겨받은 검색 함수로 질의를 실행하는 노드를 만든다."""
 
-    def search_node(state: SubState) -> SubState:
+    def search_node(state: WorkerState) -> WorkerState:
         # 질의가 여러 줄이면 각각 검색한 뒤 id로 합친다. 두 질의에 같은 문서가 걸려도 한 번만 남는다.
         k = int(config.get()["retrieval"]["top_k"])
         merged: dict[str, dict] = {}
@@ -159,7 +159,7 @@ def _search(search: SearchFn) -> Callable[[SubState], SubState]:
     return search_node
 
 
-def _relevance_judge(state: SubState) -> SubState:
+def _relevance_judge(state: WorkerState) -> WorkerState:
     """검색 결과에서 그 기준에 답이 될 만한 것만 남긴다.
 
     남는 것이 없으면 실패로 표시한다. 관련 없는 결과를 그대로 넘기면 모델이 억지로 근거를 만들어 낸다.
@@ -186,10 +186,10 @@ def _relevance_judge(state: SubState) -> SubState:
     return {"retrieval_check": CheckResult(passed=False, issues=[reason], attempt=attempt).model_dump()}
 
 
-def _query_rewrite(role_prompt: str) -> Callable[[SubState], SubState]:
+def _query_rewrite(role_prompt: str) -> Callable[[WorkerState], WorkerState]:
     """직전 질의가 왜 빗나갔는지를 붙여 질의를 다시 만드는 노드."""
 
-    def query_rewrite(state: SubState) -> SubState:
+    def query_rewrite(state: WorkerState) -> WorkerState:
         if config.is_dry_run():
             return {"query": f"{state['query']} (rewrite)"}
         task = state["task"]
@@ -254,10 +254,10 @@ def materialize(draft: FindingDraft, seq: int, task: dict, retrieved: list[dict]
     }
 
 
-def _finding_gen(role_prompt: str, perspective: str) -> Callable[[SubState], SubState]:
+def _finding_gen(role_prompt: str, perspective: str) -> Callable[[WorkerState], WorkerState]:
     """검색 결과를 근거로 서술을 쓰는 노드를 만든다."""
 
-    def finding_gen(state: SubState) -> SubState:
+    def finding_gen(state: WorkerState) -> WorkerState:
         task = state["task"]
         if config.is_dry_run():
             data = load_fixture(FIXTURE_BY_PERSPECTIVE[perspective])
@@ -288,13 +288,13 @@ def _finding_gen(role_prompt: str, perspective: str) -> Callable[[SubState], Sub
     return finding_gen
 
 
-def _citation_check(check_citation: CitationCheckFn, perspective: str) -> Callable[[SubState], SubState]:
+def _citation_check(check_citation: CitationCheckFn, perspective: str) -> Callable[[WorkerState], WorkerState]:
     """서술의 필수 항목과 인용 실재를 확인하는 노드를 만든다.
 
     모델을 부르지 않는 검사라 값이 싸고 결과가 늘 같다. 그래서 비용이 드는 판정보다 먼저 둔다.
     """
 
-    def citation_check(state: SubState) -> SubState:
+    def citation_check(state: WorkerState) -> WorkerState:
         attempt = state.get("citation_check", {}).get("attempt", 0) + 1
         retrieved = state.get("retrieved", [])
         findings = state.get("findings", [])
@@ -314,7 +314,7 @@ def _citation_check(check_citation: CitationCheckFn, perspective: str) -> Callab
     return citation_check
 
 
-def _support_judge(state: SubState) -> SubState:
+def _support_judge(state: WorkerState) -> WorkerState:
     """인용이 주장을 실제로 뒷받침하는지 판정한다.
 
     결과를 앞 검사와 같은 자리에 쓴다. 둘 다 서술을 다시 쓰게 만드는 검사라 시도 횟수를 함께 세야
@@ -330,7 +330,7 @@ def _support_judge(state: SubState) -> SubState:
     return {"citation_check": CheckResult(passed=not issues, issues=issues, attempt=attempt).model_dump()}
 
 
-def _record_gaps(state: SubState) -> SubState:
+def _record_gaps(state: WorkerState) -> WorkerState:
     """되돌릴 수 있는 횟수를 다 쓴 항목을 버리고 그 이유를 남긴다.
 
     검색을 끝내 못 했는지 서술이 검사를 통과하지 못했는지를 구분해 적는다. 보고서에서 무엇을 확인하지
@@ -346,7 +346,7 @@ def _record_gaps(state: SubState) -> SubState:
     return {"findings": [], "gaps": list(state.get("gaps", [])) + [reason]}
 
 
-def route_after_relevance(state: SubState) -> str:
+def route_after_relevance(state: WorkerState) -> str:
     """검색 결과 판정 뒤의 상황 이름. 어느 노드로 갈지는 그래프를 엮을 때 정한다."""
     check = state.get("retrieval_check", {})
     if check.get("passed"):
@@ -356,7 +356,7 @@ def route_after_relevance(state: SubState) -> str:
     return "give up"
 
 
-def route_after_finding_check(state: SubState) -> str:
+def route_after_finding_check(state: WorkerState) -> str:
     """서술 검사 뒤의 상황 이름.
 
     인용 확인과 근거 판정이 같은 규칙을 쓰고 시도 횟수도 함께 세므로 한 함수로 둔다.
@@ -378,7 +378,7 @@ def build_subgraph(search: SearchFn, check_citation: CitationCheckFn, role_promp
     role_prompt: 질의와 서술 지시 앞에 붙일 역할 지시 파일 이름.
     perspective: 기록과 샘플 조회에 쓰는 관점 이름.
     """
-    nodes: dict[str, Callable[[SubState], SubState]] = {
+    nodes: dict[str, Callable[[WorkerState], WorkerState]] = {
         "query_gen": _query_gen(role_prompt, perspective),
         "search": _search(search),
         "relevance_judge": _relevance_judge,
@@ -388,7 +388,7 @@ def build_subgraph(search: SearchFn, check_citation: CitationCheckFn, role_promp
         "support_judge": _support_judge,
         "record_gaps": _record_gaps,
     }
-    workflow = StateGraph(SubState)
+    workflow = StateGraph(WorkerState)
     for name, fn in nodes.items():
         workflow.add_node(name, counted(f"{perspective}/{name}", fn))
 
