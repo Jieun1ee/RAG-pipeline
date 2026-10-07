@@ -119,6 +119,7 @@ def _query_prompt(role_prompt: str, task: dict) -> str:
         direction=DIRECTION,
         tech_summary=task.get("tech_summary") or "(없음)",
         source_type=task.get("source_type", "paper"),
+        focus=task.get("focus") or "(없음)",
     )
     return prompts.body(role_prompt) + "\n\n" + body
 
@@ -126,7 +127,7 @@ def _query_prompt(role_prompt: str, task: dict) -> str:
 def _queries_to_str(pair: QueryPair | None, task: dict) -> str:
     """질의 두 개를 줄 단위로 이어 붙인다. 모델이 답을 주지 못하면 기술과 기준 이름으로 대신한다."""
     if pair is None:
-        return f"{task.get('tech_name') or task['technology']} {task['criterion'].get('name', '')}".strip()
+        return f"{task.get('tech_name') or task['technology']} {task['criterion'].get('name', '')} {task.get('focus') or ''}".strip()
     return "\n".join(q.strip() for q in (pair.effect, pair.limitation) if q and q.strip())
 
 
@@ -425,4 +426,4 @@ def build_subgraph(search: SearchFn, check_citation: CitationCheckFn, role_promp
         },
     )
     workflow.add_edge("record_gaps", END)
-    return workflow.compile(name=f"subgraph:{perspective}")
+    return workflow.compile(name=f"subgraph:{perspective}", checkpointer=False)
