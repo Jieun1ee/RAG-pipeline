@@ -59,7 +59,7 @@ def stepped(fn: Callable[[MainState], MainState]) -> Callable[[MainState], MainS
 
 def worker(state: WorkerState) -> MainState:
     """orchestrator가 Send로 보낸 task 하나를 처리한다. 반환값은 task_results, task_status, errors뿐이다."""
-    return perspective.run_task(state["task"])
+    return perspective.run_task(state["task"], run_id=state.get("run_id", "-"))
 
 
 # step_count를 세는 메인 노드. worker는 Send로만 불려 여기 넣지 않는다.
@@ -95,11 +95,11 @@ def route_after_synthesis_check(state: MainState) -> str:
 
 
 def route_after_report_check(state: MainState) -> str:
-    """보고서 검사 뒤의 상황 이름. 통과했거나 횟수를 다 썼으면 끝낸다."""
+    """보고서 검사 뒤 통과, 재작성, 근거 추가 조사 중 하나를 고른다."""
     check = state.get("report_check", {})
     if check.get("passed") or check.get("attempt", 0) > config.retry_limit("report"):
         return "done"
-    return "retry"
+    return check.get("route") if check.get("route") in ("rewrite", "replan") else "rewrite"
 
 
 def build_graph(checkpointer=None) -> CompiledStateGraph:  # noqa: ANN001 - LangGraph 체크포인터라면 무엇이든
@@ -139,7 +139,8 @@ def build_graph(checkpointer=None) -> CompiledStateGraph:  # noqa: ANN001 - Lang
         route_after_report_check,
         {
             "done": END,
-            "retry": "report",      # 지적을 붙여 보고서를 다시 쓴다
+            "rewrite": "report",         # 가진 근거로 표현과 구성을 다시 쓴다
+            "replan": "orchestrator",    # 근거가 부족하면 필요한 관점·기술만 다시 조사한다
         },
     )
     return workflow.compile(name="kv-cache-eval", checkpointer=checkpointer)

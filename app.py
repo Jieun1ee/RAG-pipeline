@@ -203,4 +203,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    finally:
+        # LangSmith는 백그라운드로 전송하므로 마지막 노드가 누락되지 않게 종료 전에 기다린다.
+        tracing.flush()

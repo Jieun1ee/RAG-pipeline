@@ -17,7 +17,7 @@ import yaml
 
 from agents import checks
 from agents.subgraph import SearchFn, build_subgraph
-from core import config, llm, prompts
+from core import config, llm, prompts, tracing
 from core.criteria import load_one
 from core.schemas import (
     CriterionAssessment, LevelJudgement, PerspectiveResult, Retrieved, TaskSpec,
@@ -77,7 +77,7 @@ def _subgraph(perspective: str, source_type: str):
     )
 
 
-def run_task(task: dict | TaskSpec) -> MainState:
+def run_task(task: dict | TaskSpec, *, run_id: str = "-") -> MainState:
     """작업 하나를 실행하고 메인 State에 병합할 업데이트만 반환한다.
 
     입력 계약 위반은 호출자에게 알린다. 유효한 작업의 실행 예외는 error 상태로 반환해
@@ -88,7 +88,11 @@ def run_task(task: dict | TaskSpec) -> MainState:
     if not isinstance(spec.criterion.get("id"), str) or not spec.criterion["id"].strip():
         raise ValueError("task.criterion.id는 비어 있지 않은 문자열이어야 한다")
     try:
-        out = _subgraph(spec.perspective, spec.source_type).invoke({"task": spec.model_dump(mode="json")})
+        task_data = spec.model_dump(mode="json")
+        out = _subgraph(spec.perspective, spec.source_type).invoke(
+            {"task": task_data, "run_id": run_id},
+            config=tracing.worker_run_config(run_id=run_id, task=task_data),
+        )
         # 기존 서브그래프와 dry-run fixture의 ID를 작업별 계약으로 맞춘다.
         findings = [
             {**finding, "id": f"{spec.task_id}-{number:02d}"}

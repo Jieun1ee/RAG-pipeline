@@ -7,7 +7,8 @@
     ① 기술 조사      코드가 기술 조사 기준 × 기술을 모두 보낸다. 뒤 계획의 배경 자료라 LLM이 고르지 않는다
     ② 관점 평가 계획  LLM이 task마다 출처와 검색 초점을 정한다. 빠진 기준 × 기술은 코드가 채운다
     ③ 재계획         빈 곳(한쪽 근거만 나온 관점, 근거를 끝내 못 찾은 task)만 골라 추가 task를 보낸다
-    ④ 종료           더 보낼 것이 없거나 상한에 닿으면 종합으로 넘긴다
+    ④ 품질 보완    보고서 검사가 추가 근거를 요청하면 해당 관점·기술만 다시 보낸다
+    ⑤ 종료           더 보낼 것이 없거나 상한에 닿으면 종합으로 넘긴다
 
 어느 회차든 실행이 예외로 끝난(error) task가 있으면, 다음 회차로 가기 전에 그것부터 다시 보낸다.
 결정마다 사유를 결정 로그에 남긴다. 사유는 State에 넣지 않는다.
@@ -227,6 +228,24 @@ def find_gaps(state: MainState) -> list[dict]:
     return gaps
 
 
+def quality_gaps(state: MainState) -> list[dict]:
+    """보고서 품질 검사에서 실제 추가 조사가 필요하다고 확정한 관점·기술."""
+    gaps = []
+    for request in state.get("report_check", {}).get("replan_requests", []):
+        perspective = request.get("perspective")
+        technology = request.get("technology")
+        if perspective not in EVAL_PERSPECTIVES or technology not in _technologies():
+            continue
+        gaps.append({
+            "kind": "quality",
+            "perspective": perspective,
+            "technology": technology,
+            "reason": request.get("reason", "보고서 품질을 충족할 검증 근거가 부족하다"),
+            "missing": list(request.get("missing") or []),
+        })
+    return gaps
+
+
 def _previous(state: MainState, perspective: str, criterion_id: str, technology: str) -> dict | None:
     """직전 회차에서 같은 짝을 어떤 출처와 초점으로 보냈는지."""
     for spec in state.get("plan", []):
@@ -243,27 +262,36 @@ def _format_gaps(state: MainState, gaps: list[dict]) -> str:
             candidates = ", ".join(item["id"] for item in _items(state, perspective))
             missing = "와 ".join({"strength": "강점", "limitation": "한계"}[m] for m in gap["missing"])
             lines.append(f"- balance | {perspective} | 기준 후보: {candidates} | {technology} | 사유: {missing} 방향의 검증된 근거가 없다")
-        else:
+        elif gap["kind"] == "gave_up":
             spec = gap["spec"]
             lines.append(
                 f"- gave_up | {perspective} | {spec['criterion']['id']} | {technology} | "
                 f"이전: {spec['source_type']}, \"{spec.get('focus') or ''}\" | 사유: 재시도 상한까지 검증된 근거를 찾지 못했다"
             )
+        else:
+            candidates = ", ".join(item["id"] for item in _items(state, perspective))
+            lines.append(
+                f"- report_quality | {perspective} | 기준 후보: {candidates} | {technology} | "
+                f"사유: {gap.get('reason', '보고서 품질을 위한 근거가 부족하다')}"
+            )
     return "\n".join(lines)
 
 
 def fallback_followups(state: MainState, gaps: list[dict]) -> Plan:
-    """LLM 없이 만든 재계획. 출처를 바꾸고, balance는 빠진 방향을 초점에 적는다."""
+    """LLM 없이 만든 재계획. 빈 곳의 종류에 맞춘 검색 초점으로 한 번 더 찾는다."""
     flip = {"paper": "web", "web": "paper"}
     tasks = []
     for gap in gaps:
         perspective, technology = gap["perspective"], gap["technology"]
-        if gap["kind"] == "balance":
+        if gap["kind"] in ("balance", "quality"):
             item = _items(state, perspective)[0]
             previous = _previous(state, perspective, item["id"], technology)
             source = flip[previous["source_type"]] if previous else DEFAULT_SOURCE[perspective]
-            missing = "·".join({"strength": "효과", "limitation": "한계"}[m] for m in gap["missing"])
-            focus = f"{item.get('question', '')} ({missing} 측면)"
+            if gap["kind"] == "balance":
+                missing = "·".join({"strength": "효과", "limitation": "한계"}[m] for m in gap["missing"])
+                focus = f"{item.get('question', '')} ({missing} 측면)"
+            else:
+                focus = f"{item.get('question', '')} ({gap.get('reason', '보고서 품질 보완')})"
         else:
             item = gap["spec"]["criterion"]
             source = flip[gap["spec"]["source_type"]]
@@ -276,9 +304,10 @@ def select_followups(state: MainState, plan: Plan, gaps: list[dict], round_: int
     """재계획을 검사해 보낼 일감만 남긴다.
 
     빈 곳 목록에 없는 짝, 직전과 출처·초점이 똑같은 task(캐시 때문에 같은 결과가 나온다), 같은 짝의
-    중복은 버린다. 상한을 넘으면 balance를 메우는 task를 먼저 남긴다.
+    중복은 버린다. 상한을 넘으면 balance와 보고서 품질을 메우는 task를 먼저 남긴다.
     """
     balance = {(g["perspective"], g["technology"]) for g in gaps if g["kind"] == "balance"}
+    quality = {(g["perspective"], g["technology"]) for g in gaps if g["kind"] == "quality"}
     gave_up = {(g["perspective"], g["spec"]["criterion"]["id"], g["technology"]) for g in gaps if g["kind"] == "gave_up"}
     items = {(p, item["id"]): item for p in EVAL_PERSPECTIVES for item in _items(state, p)}
     dropped: list[str] = []
@@ -286,8 +315,9 @@ def select_followups(state: MainState, plan: Plan, gaps: list[dict], round_: int
     for task in plan.tasks:
         key = (task.perspective, task.criterion_id, task.technology)
         is_balance = (task.perspective, task.technology) in balance
+        is_quality = (task.perspective, task.technology) in quality
         item = items.get((task.perspective, task.criterion_id))
-        if item is None or not (is_balance or key in gave_up):
+        if item is None or not (is_balance or is_quality or key in gave_up):
             dropped.append(f"{'-'.join(key)}: 빈 곳 목록에 없음")
             continue
         previous = _previous(state, *key)
@@ -295,7 +325,7 @@ def select_followups(state: MainState, plan: Plan, gaps: list[dict], round_: int
             dropped.append(f"{'-'.join(key)}: 직전과 출처·초점이 같음")
             continue
         spec = _spec(state, task.perspective, item, task.technology, source=task.source_type, focus=task.focus.strip() or None, round_=round_)
-        kept.setdefault(spec["task_id"], (is_balance, spec))
+        kept.setdefault(spec["task_id"], (is_balance or is_quality, spec))
     ordered = sorted(kept.values(), key=lambda pair: not pair[0])  # balance가 앞으로 온다
     limit = int(config.get()["orchestration"]["max_followup_tasks"])
     dropped += [f"{spec['task_id']}: 재계획 task 수 상한" for _, spec in ordered[limit:]]
@@ -352,6 +382,35 @@ def node(state: MainState) -> MainState:
     if resend:
         log_decision(run_id, NODE, "resend", "실행이 예외로 끝난 task를 다음 회차 전에 다시 보낸다", task_ids=sorted(resend))
         return {"task_status": {task_id: {"status": "pending", "attempt": attempt} for task_id, attempt in resend.items()}}
+
+    quality = state.get("report_check", {})
+    if quality.get("route") == "in_progress":
+        return _finish(run_id, "보고서 품질 보완 조사가 끝나 다시 종합한다")
+
+    if quality.get("route") == "replan":
+        quality_count = state.get("quality_replan_count", 0)
+        quality_limit = int(orchestration.get("max_quality_replans", 1))
+        gaps = quality_gaps(state)
+        if quality_count >= quality_limit or not gaps:
+            log_decision(
+                run_id, NODE, "quality_replan_skip",
+                "품질 재계획 상한에 닿았거나 유효한 추가 조사 요청이 없다",
+                quality_replans=quality_count,
+            )
+            return {"plan": [], "report_check": {**quality, "route": "in_progress"}}
+        round_ = state.get("replan_count", 0) + quality_count + 1
+        specs, rationale, dropped = replan_round(state, gaps, round_)
+        log_decision(
+            run_id, NODE, "quality_replan", rationale,
+            round=quality_count + 1, gaps=len(gaps), tasks=len(specs),
+            task_ids=[s["task_id"] for s in specs], dropped=dropped,
+        )
+        return {
+            "plan": specs,
+            "task_status": _pending(specs),
+            "quality_replan_count": quality_count + 1,
+            "report_check": {**quality, "route": "in_progress"},
+        }
 
     plan = state.get("plan", [])
     if not plan and "tech_research" not in state:

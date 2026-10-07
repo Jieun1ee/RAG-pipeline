@@ -10,8 +10,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
+
+from langchain_core.tracers.langchain import wait_for_all_tracers
+from langsmith import trace
 
 log = logging.getLogger(__name__)
 decision_log = logging.getLogger("decision")
@@ -59,13 +63,74 @@ def run_config(*, dry_run: bool, mode: str, run_id: str) -> dict[str, Any]:
         return {}
     return {
         "run_name": f"kv-cache-eval {run_id}",
-        "tags": ["rag-pipeline", "dry-run" if dry_run else "live"],
+        "tags": ["rag-pipeline", "orchestration", "dry-run" if dry_run else "live"],
         "metadata": {
             "run_id": run_id,
             "mode": mode,
             "dry_run": dry_run,
+            "orchestration_pattern": "fan-out-fan-in",
         },
     }
+
+
+def worker_run_config(*, run_id: str, task: Mapping[str, Any]) -> dict[str, Any]:
+    """동적으로 만들어진 worker를 화면에서 구분할 이름과 실행 정보를 만든다.
+
+    그래프나 State 계약은 바꾸지 않고, 하위 그래프를 호출할 때만 RunnableConfig로 붙인다.
+    따라서 추적을 꺼도 기존 실행 결과에는 영향을 주지 않는다.
+    """
+    if not enabled():
+        return {}
+    criterion = task.get("criterion") or {}
+    perspective = str(task.get("perspective") or "unknown")
+    technology = str(task.get("technology") or "unknown")
+    criterion_id = str(criterion.get("id") or "unknown")
+    source_type = str(task.get("source_type") or "unknown")
+    round_ = int(task.get("round") or 0)
+    attempt = int(task.get("attempt") or 1)
+    task_id = str(task.get("task_id") or f"{perspective}-{criterion_id}-{technology}")
+    return {
+        "run_name": f"worker.{perspective}.{criterion_id}.{technology}.r{round_}",
+        "tags": ["worker", perspective, technology, source_type, f"round:{round_}"],
+        "metadata": {
+            "run_id": run_id,
+            "task_id": task_id,
+            "perspective": perspective,
+            "technology": technology,
+            "criterion_id": criterion_id,
+            "source_type": source_type,
+            "round": round_,
+            "attempt": attempt,
+        },
+    }
+
+
+def _trace_decision(record: dict[str, Any]) -> None:
+    """오케스트레이터 판단을 현재 실행의 자식 span으로 남긴다.
+
+    전송 실패가 평가 실행을 중단시키면 안 되므로 추적 오류는 경고만 남긴다.
+    """
+    if not enabled():
+        return
+    try:
+        decision = str(record["decision"])
+        with trace(
+            f"decision.{decision}",
+            run_type="chain",
+            inputs={
+                "reason": record["reason"],
+                "detail": {k: v for k, v in record.items() if k not in {"ts", "reason"}},
+            },
+            tags=["orchestration-decision", decision],
+            metadata={
+                "run_id": record["run_id"],
+                "node": record["node"],
+                "decision": decision,
+            },
+        ) as run:
+            run.end(outputs={"decision": decision, "reason": record["reason"]})
+    except Exception as exc:  # noqa: BLE001 - 추적 실패는 본 실행과 분리한다
+        log.warning("LangSmith 결정 span 기록 실패: %s", exc)
 
 
 def log_decision(run_id: str, node: str, decision: str, reason: str, **detail: Any) -> None:
@@ -84,3 +149,14 @@ def log_decision(run_id: str, node: str, decision: str, reason: str, **detail: A
         **detail,
     }
     decision_log.info(json.dumps(record, ensure_ascii=False))
+    _trace_decision(record)
+
+
+def flush() -> None:
+    """프로세스가 끝나기 전에 백그라운드에서 전송 중인 trace를 모두 보낸다."""
+    if not enabled():
+        return
+    try:
+        wait_for_all_tracers()
+    except Exception as exc:  # noqa: BLE001 - 추적 실패는 결과 생성을 실패시키지 않는다
+        log.warning("LangSmith trace 전송 대기 실패: %s", exc)

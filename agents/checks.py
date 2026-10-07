@@ -9,13 +9,14 @@
 
 from __future__ import annotations
 
+import json
 import re
 
 from pydantic import ValidationError
 
 from agents.synthesis import EVAL_KEYS, all_finding_ids
 from core import config, llm, prompts
-from core.schemas import CheckResult, Finding, NeutralityJudgement, SupportJudgement
+from core.schemas import CheckResult, Finding, NeutralityJudgement, ReportQualityJudgement, SupportJudgement
 from core.state import MainState
 from rag.textnorm import normalize
 
@@ -143,7 +144,26 @@ def synthesis_check(state: MainState) -> MainState:
 
 
 SUMMARY_MIN, SUMMARY_MAX = 300, 900  # 반 쪽 분량을 넘지 않게 한다
-NEUTRALITY_MAX_CHARS = 12000
+
+QUALITY_LABEL = {
+    "groundedness": "Groundedness",
+    "neutrality": "중립성",
+    "bias_control": "편향 통제",
+    "perspective_coverage": "관점 커버리지",
+}
+PERSPECTIVE_RESULT = {
+    "trl": "trl_eval",
+    "market": "market_eval",
+    "stakeholder": "stakeholder_eval",
+    "domain": "domain_eval",
+}
+PERSPECTIVE_SECTION = {
+    "trl": "4.1",
+    "market": "4.2",
+    "stakeholder": "4.3",
+    "domain": "4.4",
+}
+_PREFERENCE = re.compile(r"(?:더\s+(?:낫|우수|효율)|우월|열등|권장|선택해야|채택해야|앞선다)")
 
 _HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 _CITATION = re.compile(r"\[(\d+)\]")
@@ -205,13 +225,224 @@ def report_code_checks(text: str) -> list[str]:
     return issues
 
 
+def _section(text: str, number: str) -> str:
+    """번호로 시작하는 절의 본문. 다음 같은 수준의 번호 절이나 문서 끝까지를 가져온다."""
+    match = re.search(
+        rf"^#{{1,6}}\s*{re.escape(number)}(?:\s|\.).*?$\n(.*?)(?=^#{{1,6}}\s*\d+(?:\.\d+)?(?:\s|\.).*?$|\Z)",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    return match.group(1).strip() if match else ""
+
+
+def _technologies(state: MainState) -> list[str]:
+    configured = list(config.get()["execution"]["technologies"])
+    selected = [t.get("technology") for t in state.get("selected_tech", []) if t.get("technology")]
+    return selected or configured
+
+
+def _findings(state: MainState, perspective: str, technology: str) -> list[dict]:
+    result = state.get(PERSPECTIVE_RESULT[perspective], {})
+    return [f for f in result.get("findings", []) if f.get("technology") == technology]
+
+
+def _quality_context(state: MainState) -> str:
+    """Judge가 보고서의 주장을 검증된 결과와 대조할 수 있도록 필요한 값만 줄여 전달한다."""
+    data = {}
+    for perspective, key in PERSPECTIVE_RESULT.items():
+        result = state.get(key, {})
+        data[perspective] = {
+            "assessments": [
+                {
+                    "criterion": a.get("criterion"),
+                    "technology": a.get("technology"),
+                    "status": a.get("status"),
+                    "rationale": a.get("rationale"),
+                }
+                for a in result.get("assessments", [])
+            ],
+            "findings": [
+                {
+                    "id": f.get("id"),
+                    "technology": f.get("technology"),
+                    "criterion": f.get("criterion"),
+                    "claim": f.get("claim"),
+                    "polarity": f.get("polarity"),
+                    "evidence": [
+                        {
+                            "ref_id": ev.get("ref_id"),
+                            "source_nature": ev.get("source_nature"),
+                            "is_self_reported": ev.get("is_self_reported"),
+                            "summary": ev.get("summary"),
+                        }
+                        for ev in f.get("evidence", [])
+                    ],
+                }
+                for f in result.get("findings", []) + result.get("dissent", [])
+            ],
+            "gaps": result.get("gaps", []),
+        }
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+def report_quality_rules(state: MainState, text: str) -> tuple[dict[str, list[str]], list[dict]]:
+    """네 품질 항목 중 코드로 확정할 수 있는 것과 추가 조사가 필요한 빈 곳을 찾는다."""
+    issues: dict[str, list[str]] = {name: [] for name in QUALITY_LABEL}
+    requests: list[dict] = []
+    body, reference = split_reference(text)
+
+    # Groundedness: 보고서 번호가 실제 State 근거로 만든 참고문헌 번호와 연결되어야 한다.
+    from agents.report import build_references  # 순환 import를 피하려 런타임에만 가져온다
+
+    _, entries = build_references(state)
+    cited = set(_CITATION.findall(body))
+    listed = set(_REF_ENTRY.findall(reference))
+    valid = {str(number) for number in entries}
+    if not cited:
+        issues["groundedness"].append("본문에 검증된 출처를 가리키는 [n] 인용이 없다")
+    if cited - listed:
+        issues["groundedness"].append(f"본문 인용이 REFERENCE에 없다: {sorted(cited - listed, key=int)}")
+    if listed - cited:
+        issues["groundedness"].append(f"REFERENCE에 본문에서 사용하지 않은 항목이 있다: {sorted(listed - cited, key=int)}")
+    if cited - valid:
+        issues["groundedness"].append(f"검증된 Evidence에서 만들지 않은 인용 번호가 있다: {sorted(cited - valid, key=int)}")
+
+    # 중립성: 명백한 추천·우열 표현은 코드가 먼저 잡고, 문맥상 편향은 Judge가 본다.
+    preference = sorted(set(_PREFERENCE.findall(body)))
+    if preference:
+        issues["neutrality"].append(f"추천·우열 표현 후보가 있다: {preference}")
+
+    max_quality = int(config.get()["orchestration"].get("max_quality_replans", 1))
+    may_replan = state.get("quality_replan_count", 0) < max_quality
+
+    # 편향 통제: State 자체가 한 방향이거나 자체 발표뿐이면 보고서만 고쳐서는 해소할 수 없다.
+    for perspective in PERSPECTIVE_RESULT:
+        for technology in _technologies(state):
+            findings = _findings(state, perspective, technology)
+            if not findings:
+                continue  # 관점 결과가 통째로 없는 경우는 아래 커버리지에서 처리한다.
+            polarities = {f.get("polarity") for f in findings}
+            missing = [p for p in ("strength", "limitation") if p not in polarities]
+            evidence = [ev for f in findings for ev in f.get("evidence", [])]
+            only_self_reported = bool(evidence) and all(ev.get("is_self_reported") for ev in evidence)
+            reasons = []
+            if missing:
+                reasons.append(f"{technology}의 {','.join(missing)} 방향 근거가 없다")
+            if only_self_reported:
+                reasons.append(f"{technology}의 근거가 모두 개발사 자체 발표다")
+            if reasons and may_replan:
+                reason = f"{perspective}: " + "; ".join(reasons)
+                issues["bias_control"].append(reason)
+                requests.append({
+                    "criterion": "bias_control",
+                    "perspective": perspective,
+                    "technology": technology,
+                    "reason": reason,
+                    "missing": missing,
+                })
+
+    # 관점 커버리지: 절 누락은 재작성, 결과 상태까지 비어 있으면 해당 관점만 다시 조사한다.
+    for perspective, key in PERSPECTIVE_RESULT.items():
+        section = _section(body, PERSPECTIVE_SECTION[perspective])
+        if not section:
+            issues["perspective_coverage"].append(f"{PERSPECTIVE_SECTION[perspective]} {perspective} 관점 절이 없거나 비어 있다")
+        result = state.get(key, {})
+        has_result = bool(result.get("findings") or result.get("assessments") or result.get("gaps"))
+        if not has_result and may_replan:
+            for technology in _technologies(state):
+                requests.append({
+                    "criterion": "perspective_coverage",
+                    "perspective": perspective,
+                    "technology": technology,
+                    "reason": f"{perspective} 관점 평가 결과와 근거 부족 기록이 모두 없다",
+                    "missing": [],
+                })
+
+    unique = {
+        (r["criterion"], r["perspective"], r["technology"]): r
+        for r in requests
+    }
+    return issues, list(unique.values())
+
+
+def _judge_request(state: MainState, criterion: str, verdict: dict) -> dict | None:
+    """Judge가 근거 부족으로 본 항목이 실제 State에도 비어 있을 때만 재계획 요청으로 바꾼다."""
+    perspective = verdict.get("perspective")
+    technology = verdict.get("technology")
+    if not verdict.get("missing_evidence") or perspective not in PERSPECTIVE_RESULT or technology not in _technologies(state):
+        return None
+    if _findings(state, perspective, technology):
+        return None
+    return {
+        "criterion": criterion,
+        "perspective": perspective,
+        "technology": technology,
+        "reason": verdict.get("reason", "검증된 근거가 없다"),
+        "missing": [],
+    }
+
+
 def report_check(state: MainState) -> MainState:
-    """보고서를 검사하는 노드. 걸린 것이 있으면 보고서를 다시 쓰게 한다."""
+    """형식과 네 품질 항목을 Hybrid로 검사하고 재작성 또는 재계획 경로를 정한다."""
     attempt = state.get("report_check", {}).get("attempt", 0) + 1
     if config.is_dry_run():
-        return {"report_check": {"passed": True, "issues": [], "attempt": attempt}}
+        criteria = {name: {"passed": True, "rule_passed": True, "judge_passed": True, "reason": "dry-run"} for name in QUALITY_LABEL}
+        return {"report_check": {"passed": True, "issues": [], "attempt": attempt, "route": "done", "criteria": criteria}}
+
     text = state.get("final_report", "")
-    issues = report_code_checks(text)
-    body, _ = split_reference(text)
-    issues += neutrality_issues(body[:NEUTRALITY_MAX_CHARS])
-    return {"report_check": CheckResult(passed=not issues, issues=issues, attempt=attempt).model_dump()}
+    format_issues = report_code_checks(text)
+    rule_issues, requests = report_quality_rules(state, text)
+    judgement = llm.judge(
+        prompts.render("report_quality_judge", report=text, evidence_context=_quality_context(state)),
+        ReportQualityJudgement,
+    )
+
+    criteria = {}
+    issues = [f"[형식] {issue}" for issue in format_issues]
+    if judgement is None:
+        issues.append("[품질 Judge] 구조화 판정 응답 실패")
+        for name in QUALITY_LABEL:
+            criteria[name] = {
+                "passed": False,
+                "rule_passed": not rule_issues[name],
+                "judge_passed": False,
+                "reason": "품질 Judge 응답 실패",
+            }
+    else:
+        judged = judgement.model_dump(mode="json")
+        for name, label in QUALITY_LABEL.items():
+            verdict = judged[name]
+            rule_passed = not rule_issues[name]
+            passed = rule_passed and verdict["passed"]
+            criteria[name] = {
+                "passed": passed,
+                "rule_passed": rule_passed,
+                "judge_passed": verdict["passed"],
+                "reason": verdict["reason"],
+            }
+            issues += [f"[{label}] {issue}" for issue in rule_issues[name]]
+            if not verdict["passed"]:
+                issues.append(f"[{label}] {verdict['reason']}")
+                request = _judge_request(state, name, verdict)
+                if request:
+                    requests.append(request)
+
+    max_quality = int(config.get()["orchestration"].get("max_quality_replans", 1))
+    can_replan = state.get("quality_replan_count", 0) < max_quality
+    unique_requests = {
+        (r["criterion"], r["perspective"], r["technology"]): r
+        for r in requests
+    }
+    replan_requests = list(unique_requests.values()) if can_replan else []
+    passed = not format_issues and all(item["passed"] for item in criteria.values())
+    route = "done" if passed else "replan" if replan_requests else "rewrite"
+    return {
+        "report_check": {
+            "passed": passed,
+            "issues": list(dict.fromkeys(issues)),
+            "attempt": attempt,
+            "route": route,
+            "criteria": criteria,
+            "replan_requests": replan_requests,
+        }
+    }

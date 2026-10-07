@@ -74,11 +74,12 @@ class MainState(TypedDict, total=False):
     step_count: Annotated[int, "메인 노드가 실행된 횟수. MAX_STEPS와 견주는 종료 가드", operator.add]
     plan: Annotated[list[dict], "오케스트레이터가 세운 현재 task 목록. worker 배분·재개에 사용하고 계획 사유는 외부 로그에 남긴다"]
     replan_count: Annotated[int, "최초 계획 이후 재계획한 횟수. 오케스트레이터가 갱신하고 재계획 상한과 견준다"]
+    quality_replan_count: Annotated[int, "보고서 품질 미달로 추가 근거를 조사한 횟수"]
     task_status: Annotated[dict[str, TaskStatus], "task_id별 진행 상태와 보낸 횟수", merge]
     errors: Annotated[dict[str, str], "task_id나 노드 이름별 마지막 오류", merge]
     # 검사 결과의 issues는 로그가 아니라 다시 쓸 때 프롬프트에 붙이는 입력이라 State에 둔다
     synthesis_check: Annotated[dict, "종합 결과 검사 (CheckResult)"]
-    report_check: Annotated[dict, "보고서 검사 (CheckResult)"]
+    report_check: Annotated[dict, "네 품질 항목의 Hybrid 판정, 수정 경로와 재계획 요청"]
 
 
 class WorkerState(TypedDict, total=False):
