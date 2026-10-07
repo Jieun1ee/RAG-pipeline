@@ -12,7 +12,7 @@ import re
 
 import yaml
 
-from agents.synthesis import LABEL, summarize_result
+from agents.synthesis import LABEL, summarize_result, unevaluated_criteria
 from core import config, llm, prompts
 from core.schemas import ReportDraft
 from core.state import MainState
@@ -145,6 +145,10 @@ def node(state: MainState) -> MainState:
     results = "\n\n".join(_format_result(key, state.get(key, {}), numbers) for key, _ in PERSPECTIVE_SECTIONS)
     gaps = [f"({LABEL.get(key, key)}) {gap}" for key in RESULT_KEYS for gap in state.get(key, {}).get("gaps", [])]
     gaps += [f"(종합 검증 미해결) {issue}" for issue in state.get("synthesis_check", {}).get("issues", [])]
+    skipped = unevaluated_criteria(state)
+    if skipped:
+        # 근거가 없던 기준과 다루지 않은 기준은 다르다. 평가 범위를 숨기지 않도록 따로 밝힌다
+        gaps.append(f"(평가 범위) 오케스트레이터가 이번 실행에서 다루지 않은 기준: {', '.join(skipped)}")
     feedback = "\n".join(state.get("report_check", {}).get("issues", [])) or "(없음)"
 
     prompt = prompts.render(
