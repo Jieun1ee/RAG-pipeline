@@ -20,7 +20,11 @@ import yaml
 from agents import checks
 from agents.subgraph import SearchFn, build_subgraph
 from core import config, llm, prompts
-from core.schemas import CriterionAssessment, LevelJudgement, PerspectiveResult, Retrieved, TRLEstimate, TRLResult
+from core.criteria import load_one
+from core.schemas import (
+    CriterionAssessment, LevelJudgement, PerspectiveResult, Retrieved, TaskSpec,
+    TRLEstimate, TRLResult, task_id_of, worker_update,
+)
 from core.state import MainState, load_fixture
 
 log = logging.getLogger(__name__)
@@ -81,6 +85,7 @@ def build_tasks(perspective: str, state: MainState) -> list[dict]:
     source_type = "paper" if SOURCE[perspective] == "rag" else "web"
     return [
         {
+            "task_id": task_id_of(perspective, item["id"], technology),
             "perspective": perspective,
             "technology": technology,
             "tech_name": _tech_name(state, technology),
@@ -88,16 +93,15 @@ def build_tasks(perspective: str, state: MainState) -> list[dict]:
             "tech_summary": tech_summary(state, technology),
             "source_type": source_type,
             "levels": dict(spec.get("levels") or {}),
-            "axes": axes_for(perspective, spec, item),
         }
         for item in items
         for technology in technologies
     ]
 
 
-def _search_fn(perspective: str) -> SearchFn:
-    """관점에 맞는 검색 함수. 외부 호출을 끈 모드에서는 샘플 결과를 돌려주는 함수를 준다."""
-    source = SOURCE[perspective]
+def _search_fn(source_type: str) -> SearchFn:
+    """계획이 지정한 출처로 검색한다. dry-run에서는 해당 출처의 샘플을 쓴다."""
+    source = "rag" if source_type == "paper" else "web"
     if config.is_dry_run():
         fixture = f"retrieved_{source}"
         return lambda query, k: [Retrieved.model_validate(r) for r in load_fixture(fixture)][:k]
@@ -111,15 +115,38 @@ def _search_fn(perspective: str) -> SearchFn:
     return lambda query, k: web.search(query, int(config.get()["retrieval"]["web_max_results"]))
 
 
-def _subgraph(perspective: str):
-    """관점에 맞는 검색과 인용 확인 방식을 끼운 서브그래프."""
-    check_citation = checks.rag_check if SOURCE[perspective] == "rag" else checks.web_check
+def _subgraph(perspective: str, source_type: str):
+    """계획의 출처에 맞는 검색과 인용 확인 방식을 끼운 서브그래프."""
+    check_citation = checks.rag_check if source_type == "paper" else checks.web_check
     return build_subgraph(
-        search=_search_fn(perspective),
+        search=_search_fn(source_type),
         check_citation=check_citation,
         role_prompt=f"perspective/{perspective}",
         perspective=perspective,
     )
+
+
+def run_task(task: dict | TaskSpec) -> MainState:
+    """작업 하나를 실행하고 메인 State에 병합할 업데이트만 반환한다.
+
+    입력 계약 위반은 호출자에게 알린다. 유효한 작업의 실행 예외는 error 상태로 반환해
+    다른 worker 결과를 보존하고, 재시도 여부는 오케스트레이터가 결정하게 한다.
+    attempt는 전달받은 값을 유지한다. 관점별 판정과 집계는 여기서 하지 않는다.
+    """
+    spec = TaskSpec.model_validate(task)
+    if not isinstance(spec.criterion.get("id"), str) or not spec.criterion["id"].strip():
+        raise ValueError("task.criterion.id는 비어 있지 않은 문자열이어야 한다")
+    try:
+        out = _subgraph(spec.perspective, spec.source_type).invoke({"task": spec.model_dump(mode="json")})
+        # 기존 서브그래프와 dry-run fixture의 ID를 작업별 계약으로 맞춘다.
+        findings = [
+            {**finding, "id": f"{spec.task_id}-{number:02d}"}
+            for number, finding in enumerate(out.get("findings", []), start=1)
+        ]
+        return worker_update(spec, findings=findings, gaps=out.get("gaps", []))
+    except Exception as exc:
+        log.exception("worker 실행 실패: task_id=%s attempt=%s", spec.task_id, spec.attempt)
+        return worker_update(spec, findings=[], gaps=[], error=f"{type(exc).__name__}: {exc}")
 
 
 def _format_findings(findings: list[dict]) -> str:
@@ -151,6 +178,19 @@ def assess(perspective: str, spec: dict, item: dict, technology: str, findings: 
     if perspective == "tech":
         rationale = " / ".join(f["claim"] for f in findings)[:800]
         return CriterionAssessment(**base, status="assessed", levels={}, rationale=rationale, finding_ids=finding_ids).model_dump()
+
+    if config.is_dry_run():
+        sample = next(
+            (a for a in load_fixture(STATE_KEY[perspective])["assessments"]
+             if a["criterion"] == item["id"] and a["technology"] == technology),
+            None,
+        )
+        return CriterionAssessment(
+            **base, status=sample["status"] if sample else "insufficient_evidence",
+            levels=sample["levels"] if sample else {},
+            rationale="[dry-run] 샘플 판정. 실제 근거 품질 평가는 수행하지 않음",
+            finding_ids=finding_ids,
+        ).model_dump()
 
     allowed = spec.get("levels") or {}
     prompt = prompts.render(
@@ -268,50 +308,61 @@ def trl_estimate(technology: str, assessments: list[dict]) -> dict:
     ).model_dump()
 
 
+def aggregate(perspective: str, results: list[dict]) -> dict:
+    """한 관점의 TaskOutput 목록을 모아 판정·균형 검사·TRL 추정을 수행한다.
+
+    실제 실행된 기준과 기술 조합만 판정한다. 근거가 없는 작업도 판정에 남기며,
+    같은 조합의 추가 조사 결과는 함께 사용한다.
+    """
+    spec = load_one(perspective)
+    items = {item["id"]: item for item in spec["items"]}
+    by_id = {f["id"]: f for result in results for f in result["findings"]}
+    findings = [by_id[fid] for fid in sorted(by_id)]
+    gaps = [gap for result in results for gap in result["gaps"]]
+    by_group: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for result in results:
+        by_group[(result["criterion_id"], result["technology"])]
+    for finding in findings:
+        by_group[(finding["criterion"], finding["technology"])].append(finding)
+    assessments = [
+        assess(perspective, spec, items[criterion_id], technology, group)
+        for (criterion_id, technology), group in by_group.items()
+    ]
+    technologies = sorted({result["technology"] for result in results})
+    gaps.extend(balance_gaps(findings, technologies))
+    data = {
+        "perspective": perspective,
+        "assessments": assessments,
+        "findings": findings,
+        "dissent": dissent_of(findings),
+        "gaps": gaps,
+    }
+    if perspective == "trl":
+        data["estimates"] = [trl_estimate(t, assessments) for t in technologies]
+        return TRLResult.model_validate(data).model_dump(mode="json")
+    return PerspectiveResult.model_validate(data).model_dump(mode="json")
+
+
 def make_node(perspective: str) -> Callable[[MainState], MainState]:
     """관점 하나를 처리하는 노드를 만든다. 노드 이름은 결과를 쓸 상태 키와 같게 맞춘다."""
     key = STATE_KEY[perspective]
 
     def node(state: MainState) -> MainState:
         tasks = build_tasks(perspective, state)
-        subgraph = _subgraph(perspective)
-        findings: list[dict] = []
-        gaps: list[str] = []
+        results: list[dict] = []
         for task in tasks:
-            out = subgraph.invoke({"task": task})
-            findings.extend(out.get("findings", []))
-            gaps.extend(out.get("gaps", []))
-        log.info("%s: task %d개, findings %d개, gaps %d개", key, len(tasks), len(findings), len(gaps))
+            update = run_task(task)
+            out = update["task_results"][task["task_id"]]
+            # 기존 관점 노드 경로에서도 실행 실패가 조용히 사라지지 않게 남긴다.
+            out["gaps"].extend(update.get("errors", {}).values())
+            results.append(out)
+        log.info("%s: task %d개", key, len(tasks))
 
         # 외부 호출을 끈 모드에서는 여기까지 돌려 연결만 확인하고 결과는 샘플로 대신한다
         if config.is_dry_run():
             return {key: load_fixture(key)}
 
-        spec = state["criteria"][perspective]
-        technologies = list(config.get()["execution"]["technologies"])
-        by_group: dict[tuple[str, str], list[dict]] = defaultdict(list)
-        for f in findings:
-            by_group[(f["criterion"], f["technology"])].append(f)
-        # 근거를 못 찾은 기준도 판정 목록에 남긴다. 다루지 않은 것과 근거가 없던 것은 다르다.
-        seen_items = {t["criterion"]["id"]: t["criterion"] for t in tasks}
-        assessments = [
-            assess(perspective, spec, item, technology, by_group.get((item_id, technology), []))
-            for item_id, item in seen_items.items()
-            for technology in technologies
-        ]
-        gaps.extend(balance_gaps(findings, technologies))
-
-        data = {
-            "perspective": perspective,
-            "assessments": assessments,
-            "findings": findings,
-            "dissent": dissent_of(findings),
-            "gaps": gaps,
-        }
-        if perspective == "trl":
-            data["estimates"] = [trl_estimate(t, assessments) for t in technologies]
-            return {key: TRLResult.model_validate(data).model_dump(mode="json")}
-        return {key: PerspectiveResult.model_validate(data).model_dump(mode="json")}
+        return {key: aggregate(perspective, results)}
 
     node.__name__ = key
     return node

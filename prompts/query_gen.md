@@ -1,10 +1,11 @@
-변수: {technology} {tech_name} {criterion_id} {criterion_name} {criterion_question} {direction} {tech_summary} {source_type}
+변수: {technology} {tech_name} {criterion_id} {criterion_name} {criterion_question} {direction} {tech_summary} {source_type} {focus}
 
 ## 검색 질의 생성
 
 조사 대상 기술: {technology} ({tech_name})
 평가 기준: {criterion_id} {criterion_name}
 평가 질문: {criterion_question}
+추가 검색 초점: {focus}
 검색 방향: {direction}
 검색 도구: {source_type} (paper = 해당 기술 논문 전문 검색, web = 웹 검색)
 
@@ -16,6 +17,7 @@
 - limitation: 한계·반대 근거·비용을 찾는 질의
 
 규칙:
+- 추가 검색 초점이 있으면 두 질의에 반영하되, 효과와 한계 양쪽의 근거를 조사한다.
 - 검색 도구가 paper이면 영어로, 논문 본문에 나올 법한 용어(예: KV cache, latent, compression, CXL, tiered memory)를 쓴다.
 - web이면 영어로 쓰되 기술을 특정하는 이름(예: "DeepSeek-V2 MLA", "SK hynix ITME CXL")을 반드시 포함한다.
 - 질의는 한 줄, 15단어 이내. 질문문이 아니라 검색어 나열도 좋다.
