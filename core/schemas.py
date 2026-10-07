@@ -309,6 +309,25 @@ class QuestionDraft(BaseModel):
     question: str = Field(description="주어진 본문에 있는 고유한 사실을 가리키는 질문")
 
 
+class PlannedTask(BaseModel):
+    """오케스트레이터가 계획한 일 하나. 기준 하나와 기술 하나를 어떤 출처에서 어떤 초점으로 찾을지 정한다."""
+
+    perspective: Literal["trl", "market", "stakeholder", "domain"] = Field(description="평가 관점")
+    criterion_id: str = Field(description="평가 기준 id. 주어진 기준 목록에 있는 값만 쓴다")
+    technology: Tech = Field(description="평가할 기술")
+    source_type: Literal["paper", "web"] = Field(
+        description="찾을 곳. 논문에 실리는 수치와 구조는 paper, 채택·양산·시장 반응처럼 논문 밖의 활동은 web"
+    )
+    focus: str = Field(description="검색 초점 한 문장. 이 기술에서 이 기준을 확인하려면 무엇을 찾아야 하는지 구체적으로 쓴다")
+
+
+class Plan(BaseModel):
+    """오케스트레이터의 계획. 처음 계획과 재계획이 같은 형식을 쓴다."""
+
+    tasks: list[PlannedTask] = Field(description="보낼 일 목록")
+    rationale: str = Field(description="이렇게 나눈 이유. 어디에 초점을 두었고 무엇을 우선했는지 두세 문장")
+
+
 # 샘플 JSON 검증. 파일 이름으로 어떤 형식인지 정해 두어,
 # 샘플을 만드는 쪽이 코드를 몰라도 스스로 확인할 수 있게 한다.
 

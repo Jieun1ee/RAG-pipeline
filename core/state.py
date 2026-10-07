@@ -87,7 +87,8 @@ class WorkerState(TypedDict, total=False):
     query, retrieved와 두 검사 결과는 이 안에서만 쓰는 중간값이다. 밖으로는 findings와 gaps만 나간다.
     """
 
-    task: Annotated[dict, "처리할 기준과 기술, 그에 딸린 설정"]
+    task: Annotated[dict, "처리할 일감 (TaskSpec)"]
+    run_id: Annotated[str, "MainState의 run_id. worker의 로그를 같은 실행에 묶는다"]
     query: Annotated[str, "검색 질의. 줄 단위로 여러 개"]
     retrieved: Annotated[list[dict], "검색 결과 (Retrieved)"]
     retrieval_check: Annotated[dict, "검색 결과 관련성 검사 (CheckResult)"]

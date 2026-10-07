@@ -1,10 +1,17 @@
 """평가 그래프 조립.
 
-    select_tech → tech_research → [trl_eval, market_eval, stakeholder_eval, domain_eval] → synthesis
-    → synthesis_check → report → report_check → 끝
+    select_tech → orchestrator ─(Send × N)→ worker → collect ─┐
+                      ▲                                        │
+                      └────────────────────────────────────────┘
+                      └─ 더 보낼 task가 없으면 → synthesis → synthesis_check → report → report_check → 끝
 
-기술 조사를 먼저 하는 것은 뒤 네 관점이 그 결과를 배경으로 질의를 만들기 때문이다. 네 관점은 서로를
-기다릴 이유가 없어 동시에 돈다. 종합과 보고서는 각각 검사를 달고 있어, 걸리면 정해진 횟수까지 다시 쓴다.
+orchestrator가 회차마다 보낼 task를 정하고, worker는 task 하나(기준 하나 × 기술 하나)를 처리한다.
+같은 회차의 worker들은 동시에 돈다. collect가 결과를 관점별로 묶으면 orchestrator로 돌아가 다음 회차를
+정한다. 기술 조사, 관점 평가, 재계획 순으로 돌고, 무엇을 보낼지와 언제 멈출지는 orchestrator가 정한다.
+종합과 보고서는 각각 검사를 달고 있어, 걸리면 정해진 횟수까지 다시 쓴다.
+
+메인 노드는 실행될 때마다 step_count를 1씩 올린다. orchestrator가 이 값을 max_steps와 견줘 멈춘다.
+worker는 task 수만큼 돌기 때문에 세지 않는다.
 
 명령줄 처리와 떼어 두었다. 그래프는 도메인 로직이고 명령줄은 그것을 부르는 여러 방법 중 하나다.
 모듈 수준의 graph가 컴파일된 그래프라, 시각화 도구나 다른 진입점에서 그대로 가져다 쓸 수 있다.
@@ -12,19 +19,21 @@
 
 from __future__ import annotations
 
+from functools import wraps
 from typing import Callable
 
 import yaml
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from agents import checks, perspective, report, synthesis
+from agents import checks, orchestrator, report, synthesis
+from agents import placeholder  # A의 worker·collect 구현이 들어오면 교체한다
 from agents.subgraph import counted
 from core import config
 from core.criteria import load_all
 from core.state import MainState
 
-PERSPECTIVE_NODES = ["trl_eval", "market_eval", "stakeholder_eval", "domain_eval"]
+EVAL_KEYS = ["tech_research", "trl_eval", "market_eval", "stakeholder_eval", "domain_eval"]
 
 
 def select_tech(state: MainState) -> MainState:
@@ -32,18 +41,28 @@ def select_tech(state: MainState) -> MainState:
     cfg = config.get()
     with open(config.resolve(cfg["paths"]["registry"]), encoding="utf-8") as f:
         registry = yaml.safe_load(f)
-    criteria = load_all()
-    criteria["domain_name"] = registry.get("domain", "")
-    return {"selected_tech": [dict(t) for t in registry["selected_tech"]], "criteria": criteria}
+    return {
+        "selected_tech": [dict(t) for t in registry["selected_tech"]],
+        "target_domain": registry.get("domain", ""),
+        "criteria": load_all(),
+    }
 
 
+def stepped(fn: Callable[[MainState], MainState]) -> Callable[[MainState], MainState]:
+    """메인 노드의 반환값에 step_count +1을 얹는다. step_count는 더하기 reducer라 1만 보내면 된다."""
+
+    @wraps(fn)
+    def wrapper(state: MainState) -> MainState:
+        return {**fn(state), "step_count": 1}
+
+    return wrapper
+
+
+# step_count를 세는 메인 노드. worker는 Send로만 불려 여기 넣지 않는다.
 NODES: dict[str, Callable[[MainState], MainState]] = {
     "select_tech": select_tech,
-    "tech_research": perspective.make_node("tech"),
-    "trl_eval": perspective.make_node("trl"),
-    "market_eval": perspective.make_node("market"),
-    "stakeholder_eval": perspective.make_node("stakeholder"),
-    "domain_eval": perspective.make_node("domain"),
+    "orchestrator": orchestrator.node,
+    "collect": placeholder.collect,
     "synthesis": synthesis.node,
     "synthesis_check": checks.synthesis_check,
     "report": report.node,
@@ -51,18 +70,15 @@ NODES: dict[str, Callable[[MainState], MainState]] = {
 }
 
 # 각 노드가 읽는 상태 키. 노드를 하나만 돌릴 때 이 목록을 보고 입력을 채운다.
-_EVALS = ["tech_research", *PERSPECTIVE_NODES]
+# orchestrator는 기술 조사 결과가 채워져 있으므로 관점 평가 계획부터 세운다.
 NODE_INPUTS: dict[str, list[str]] = {
     "select_tech": [],
-    "tech_research": ["selected_tech", "criteria"],
-    "trl_eval": ["selected_tech", "criteria", "tech_research"],
-    "market_eval": ["selected_tech", "criteria", "tech_research"],
-    "stakeholder_eval": ["selected_tech", "criteria", "tech_research"],
-    "domain_eval": ["selected_tech", "criteria", "tech_research"],
-    "synthesis": ["criteria", *_EVALS, "synthesis_check"],
-    "synthesis_check": ["criteria", *_EVALS, "synthesis"],
-    "report": ["selected_tech", "criteria", *_EVALS, "synthesis", "synthesis_check", "report_check"],
-    "report_check": ["selected_tech", *_EVALS, "synthesis", "final_report"],
+    "orchestrator": ["selected_tech", "target_domain", "criteria", "tech_research"],
+    "collect": ["task_results"],
+    "synthesis": ["criteria", *EVAL_KEYS, "synthesis_check"],
+    "synthesis_check": ["criteria", *EVAL_KEYS, "synthesis"],
+    "report": ["selected_tech", "target_domain", "criteria", *EVAL_KEYS, "synthesis", "synthesis_check", "report_check"],
+    "report_check": ["selected_tech", "target_domain", *EVAL_KEYS, "synthesis", "final_report"],
 }
 
 
@@ -82,20 +98,28 @@ def route_after_report_check(state: MainState) -> str:
     return "retry"
 
 
-def build_graph() -> CompiledStateGraph:
+def build_graph(checkpointer=None) -> CompiledStateGraph:  # noqa: ANN001 - LangGraph 체크포인터라면 무엇이든
     """노드와 연결을 붙여 실행할 수 있는 그래프로 만든다.
 
-    네 관점은 동시에 돌지만 서로 다른 상태 키에만 쓰기 때문에 결과가 덮이지 않는다.
+    checkpointer를 넘기면 단계마다 상태를 저장해, 중단된 실행을 같은 thread_id로 이어서 돌릴 수 있다.
     """
     workflow = StateGraph(MainState)
     for name, fn in NODES.items():
-        workflow.add_node(name, counted(name, fn))
+        workflow.add_node(name, counted(name, stepped(fn)))
+    workflow.add_node("worker", counted("worker", placeholder.worker))
 
     workflow.add_edge(START, "select_tech")
-    workflow.add_edge("select_tech", "tech_research")
-    for name in PERSPECTIVE_NODES:
-        workflow.add_edge("tech_research", name)
-    workflow.add_edge(PERSPECTIVE_NODES, "synthesis")  # 네 관점이 모두 끝난 뒤 한 번만 돈다
+    workflow.add_edge("select_tech", "orchestrator")
+    workflow.add_conditional_edges(
+        "orchestrator",
+        orchestrator.dispatch,
+        {
+            "worker": "worker",                  # pending인 task를 Send로 하나씩 보낸다
+            orchestrator.DONE: "synthesis",      # 더 보낼 task가 없다
+        },
+    )
+    workflow.add_edge("worker", "collect")       # 같은 회차의 worker가 모두 끝난 뒤 한 번만 돈다
+    workflow.add_edge("collect", "orchestrator")
     workflow.add_edge("synthesis", "synthesis_check")
     workflow.add_conditional_edges(
         "synthesis_check",
@@ -114,7 +138,7 @@ def build_graph() -> CompiledStateGraph:
             "retry": "report",      # 지적을 붙여 보고서를 다시 쓴다
         },
     )
-    return workflow.compile(name="kv-cache-eval")
+    return workflow.compile(name="kv-cache-eval", checkpointer=checkpointer)
 
 
 # 시각화 도구와 다른 진입점이 가져다 쓰는 이름. 조립만 하므로 불러들이는 비용이 거의 없다.
