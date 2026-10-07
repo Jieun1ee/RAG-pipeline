@@ -42,6 +42,7 @@ SEPARATOR = re.compile(r"^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$")
 HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 LIST_ITEM = re.compile(r"^\s*(?:[-*+] |\d+[.)] )(.*)$")
 LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+REFERENCE_ENTRY = re.compile(r"^\s*\[\d+\]\s")
 
 
 class PDFRenderError(RuntimeError):
@@ -141,6 +142,16 @@ def make_styles(font: str) -> dict[str, ParagraphStyle]:
             borderPadding=4,
         ),
         "table": ParagraphStyle("ReportTable", parent=body, fontSize=7.2, leading=10, spaceAfter=0),
+        # 참고문헌 한 항목. 번호 다음 줄은 들여 써서 항목 경계가 보이게 하고, 본문보다 작게 써 분량을 줄인다
+        "reference": ParagraphStyle(
+            "ReportReference",
+            parent=body,
+            fontSize=7.6,
+            leading=10.6,
+            leftIndent=7 * mm,
+            firstLineIndent=-7 * mm,
+            spaceAfter=1.6 * mm,
+        ),
     }
 
 
@@ -157,6 +168,7 @@ def markdown_story(
     bullets: list[str] = []
     code: list[str] = []
     in_code = False
+    in_reference = False  # REFERENCE 절 안에서는 [n]으로 시작하는 줄을 항목 하나씩 따로 그린다
     first_heading = True
 
     def flush_paragraph() -> None:
@@ -197,6 +209,7 @@ def markdown_story(
             flush_paragraph()
             flush_bullets()
             level, text = len(heading.group(1)), heading.group(2)
+            in_reference = text.strip().upper().startswith("REFERENCE")
             if first_heading and text.strip() == document_title.strip():
                 first_heading = False
                 i += 1
@@ -231,6 +244,14 @@ def markdown_story(
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
             ]))
             story.extend([table, Spacer(1, 4 * mm)])
+            continue
+
+        if in_reference and REFERENCE_ENTRY.match(line):
+            # 빈 줄 없이 이어진 항목도 하나씩 나눈다. 앞선 보고서 파일처럼 줄바꿈 하나로만 구분된 경우를 위해서다
+            flush_paragraph()
+            flush_bullets()
+            story.append(Paragraph(inline(line.strip()), styles["reference"]))
+            i += 1
             continue
 
         item = LIST_ITEM.match(line)

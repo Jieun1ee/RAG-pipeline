@@ -111,10 +111,13 @@ def strip_reference_section(markdown: str) -> str:
 
 
 def attach_references(body: str, entries: dict[int, dict]) -> str:
-    """본문에 실제로 나온 번호만 모아 참고문헌 절을 붙인다."""
+    """본문에 실제로 나온 번호만 모아 참고문헌 절을 붙인다.
+
+    항목 사이에 빈 줄을 둔다. 줄바꿈 하나로만 이으면 마크다운과 PDF 모두 한 문단으로 합쳐 보인다.
+    """
     cited = sorted({int(n) for n in _CITATION.findall(body) if int(n) in entries})
     lines = [format_reference(n, entries[n]) for n in cited]
-    return body.rstrip() + "\n\n# REFERENCE\n\n" + ("\n".join(lines) if lines else "(본문에 인용된 출처가 없다)") + "\n"
+    return body.rstrip() + "\n\n# REFERENCE\n\n" + ("\n\n".join(lines) if lines else "(본문에 인용된 출처가 없다)") + "\n"
 
 
 # --- 프롬프트 입력 ---------------------------------------------------------------
