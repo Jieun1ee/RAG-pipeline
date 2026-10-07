@@ -1,11 +1,10 @@
-"""관점 하나를 통째로 처리하는 노드를 만든다.
+"""worker가 task 하나를 처리하는 부분과, collect가 관점 하나의 결과를 묶는 부분.
 
-다섯 관점이 모두 같은 함수에서 나온다. 기준 목록과 검색 종류만 다르고 절차는 같다.
+run_task는 orchestrator가 보낸 task(기준 하나 × 기술 하나)를 task에 적힌 출처로 서브그래프에 태워
+서술을 만든다. 다섯 관점이 같은 서브그래프를 쓰고, 출처와 역할 지시만 task에 따라 다르다.
 
-기준과 기술을 짝지어 할 일을 만들고, 짝마다 서브그래프를 돌려 서술을 모은다. 그다음 기준별로
-수준을 판정하고, 한 기술에 강점과 한계가 모두 나왔는지 확인한다. 한쪽만 나왔다면 반대쪽을 찾지
-못했다고 적어 둔다. 근거가 한쪽으로 쏠린 채 결론이 나가지 않게 하려는 것이다.
-
+aggregate는 collect가 부른다. 기준별로 수준을 판정하고, 한 기술에 강점과 한계가 모두 나왔는지 확인한다.
+한쪽만 나왔다면 반대쪽을 찾지 못했다고 적어 둔다. 근거가 한쪽으로 쏠린 채 결론이 나가지 않게 하려는 것이다.
 성숙도 관점만 판정 뒤에 한 단계가 더 있다. 단계별 근거에서 구간을 규칙으로 계산한다.
 """
 
@@ -13,7 +12,6 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from typing import Callable
 
 import yaml
 
@@ -23,7 +21,7 @@ from core import config, llm, prompts
 from core.criteria import load_one
 from core.schemas import (
     CriterionAssessment, LevelJudgement, PerspectiveResult, Retrieved, TaskSpec,
-    TRLEstimate, TRLResult, task_id_of, worker_update,
+    TRLEstimate, TRLResult, worker_update,
 )
 from core.state import MainState, load_fixture
 
@@ -36,25 +34,7 @@ STATE_KEY: dict[str, str] = {
     "stakeholder": "stakeholder_eval",
     "domain": "domain_eval",
 }
-# 답이 논문 안에 있는 관점과 논문 밖에 있는 관점을 나눈다.
-# 도메인 적합성은 처리량·지연·메모리의 보고 수치와 그 측정 조건을 따지므로 논문 본문을 본다.
-# 기술 성숙도는 상용 운용, 양산과 납품, 프레임워크 정식 지원처럼 논문에 실리지 않는 활동을 확인해야 해서 웹을 본다.
-SOURCE: dict[str, str] = {"tech": "rag", "trl": "web", "market": "web", "stakeholder": "web", "domain": "rag"}
 TRL_AXIS = "근거 수준"
-
-
-def tech_summary(state: MainState, technology: str) -> str:
-    """앞서 조사한 내용 중 그 기술에 대한 것만 모은다. 뒤 관점이 질의를 만들 때 배경으로 넣는다."""
-    findings = state.get("tech_research", {}).get("findings", [])
-    return "\n".join(f["claim"] for f in findings if f.get("technology") == technology)
-
-
-def _tech_name(state: MainState, technology: str) -> str:
-    """등록 정보에 적힌 정식 이름. 약칭만으로 웹을 뒤지면 엉뚱한 것이 걸리기 때문에 질의에 함께 넣는다."""
-    for tech in state.get("selected_tech", []):
-        if tech.get("technology") == technology:
-            return tech.get("name") or technology
-    return technology
 
 
 def axes_for(perspective: str, spec: dict, item: dict) -> list[str]:
@@ -68,35 +48,6 @@ def axes_for(perspective: str, spec: dict, item: dict) -> list[str]:
     if spec.get("level_axis"):
         return [spec["level_axis"]]
     return []
-
-
-def build_tasks(perspective: str, state: MainState) -> list[dict]:
-    """기준과 기술을 짝지어 할 일 목록을 만든다.
-
-    설정에 개수 상한이 있으면 앞쪽 기준만 쓴다. 전부 돌리기 전에 흐름과 프롬프트를 확인할 때 쓴다.
-    """
-    cfg = config.get()
-    spec = state["criteria"][perspective]
-    items = list(spec["items"])
-    limit = cfg["execution"].get("criteria_limit")
-    if limit is not None:
-        items = items[: int(limit)]
-    technologies = list(cfg["execution"]["technologies"])
-    source_type = "paper" if SOURCE[perspective] == "rag" else "web"
-    return [
-        {
-            "task_id": task_id_of(perspective, item["id"], technology),
-            "perspective": perspective,
-            "technology": technology,
-            "tech_name": _tech_name(state, technology),
-            "criterion": dict(item),
-            "tech_summary": tech_summary(state, technology),
-            "source_type": source_type,
-            "levels": dict(spec.get("levels") or {}),
-        }
-        for item in items
-        for technology in technologies
-    ]
 
 
 def _search_fn(source_type: str) -> SearchFn:
@@ -341,28 +292,3 @@ def aggregate(perspective: str, results: list[dict]) -> dict:
         data["estimates"] = [trl_estimate(t, assessments) for t in technologies]
         return TRLResult.model_validate(data).model_dump(mode="json")
     return PerspectiveResult.model_validate(data).model_dump(mode="json")
-
-
-def make_node(perspective: str) -> Callable[[MainState], MainState]:
-    """관점 하나를 처리하는 노드를 만든다. 노드 이름은 결과를 쓸 상태 키와 같게 맞춘다."""
-    key = STATE_KEY[perspective]
-
-    def node(state: MainState) -> MainState:
-        tasks = build_tasks(perspective, state)
-        results: list[dict] = []
-        for task in tasks:
-            update = run_task(task)
-            out = update["task_results"][task["task_id"]]
-            # 기존 관점 노드 경로에서도 실행 실패가 조용히 사라지지 않게 남긴다.
-            out["gaps"].extend(update.get("errors", {}).values())
-            results.append(out)
-        log.info("%s: task %d개", key, len(tasks))
-
-        # 외부 호출을 끈 모드에서는 여기까지 돌려 연결만 확인하고 결과는 샘플로 대신한다
-        if config.is_dry_run():
-            return {key: load_fixture(key)}
-
-        return {key: aggregate(perspective, results)}
-
-    node.__name__ = key
-    return node

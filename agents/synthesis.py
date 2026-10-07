@@ -28,7 +28,7 @@ LABEL = {
 }
 
 
-def all_finding_ids(state: MainState, keys: tuple[str, ...] = ("tech_research", *EVAL_KEYS)) -> dict[str, str]:
+def all_finding_ids(state: MainState, keys: tuple[str, ...]) -> dict[str, str]:
     """서술 id로 그 서술이 나온 관점을 찾을 수 있는 표. 반대 방향 의견도 함께 넣는다."""
     ids: dict[str, str] = {}
     for key in keys:

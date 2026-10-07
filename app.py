@@ -44,7 +44,7 @@ DEFAULT_CHECK = {"passed": True, "issues": [], "attempt": 0}
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="kv-cache-eval 실행")
     parser.add_argument("--dry-run", action="store_true", help="LLM·검색 대신 fixtures 사용")
-    parser.add_argument("--only", metavar="NODE", choices=list(NODES), help="노드 하나만 실행 (입력은 fixtures로 채움)")
+    parser.add_argument("--only", metavar="NODE", choices=list(NODE_INPUTS), help="노드 하나만 실행 (입력은 fixtures로 채움)")
     parser.add_argument("--criteria-limit", type=int, metavar="N", help="관점당 앞의 N개 기준만")
     parser.add_argument("--retry", type=int, metavar="N", help="모든 재시도 상한을 N으로")
     parser.add_argument("--no-cache", action="store_true", help="캐시를 읽지도 쓰지도 않음")

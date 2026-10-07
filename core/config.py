@@ -81,9 +81,3 @@ def resolve(path: str) -> Path:
     """설정에 적힌 상대 경로를 저장소 루트 기준 절대 경로로 바꾼다."""
     p = Path(path)
     return p if p.is_absolute() else ROOT / p
-
-
-def reset() -> None:
-    """다음 get()에서 파일을 다시 읽게 한다. 설정을 바꿔 가며 시험할 때 쓴다."""
-    global _config
-    _config = None

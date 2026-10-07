@@ -21,6 +21,7 @@ from typing import Any
 
 from langgraph.types import Send
 
+from agents.perspective import STATE_KEY
 from core import config, llm, prompts
 from core.schemas import Plan, PlannedTask, TaskSpec, task_id_of
 from core.state import MainState
@@ -29,8 +30,9 @@ from core.tracing import log_decision
 NODE = "orchestrator"
 DONE = "done"  # dispatch가 보낼 task가 없을 때 돌려주는 경로 이름
 EVAL_PERSPECTIVES = ("trl", "market", "stakeholder", "domain")
-EVAL_KEYS = {"trl": "trl_eval", "market": "market_eval", "stakeholder": "stakeholder_eval", "domain": "domain_eval"}
 # 관점별 기본 출처. 답이 논문 안에 있는 관점은 paper, 논문 밖 활동을 봐야 하는 관점은 web이다.
+# 도메인 적합성은 처리량·지연·메모리의 보고 수치와 그 측정 조건을 따지므로 논문 본문을 본다.
+# 기술 성숙도는 상용 운용, 양산과 납품, 프레임워크 정식 지원처럼 논문에 실리지 않는 활동을 확인해야 해서 웹을 본다.
 # 계획 단계에서 LLM이 기준별로 바꿀 수 있다.
 DEFAULT_SOURCE = {"tech": "paper", "trl": "web", "market": "web", "stakeholder": "web", "domain": "paper"}
 SUMMARY_MAX = 1500  # 계획 프롬프트에 넣을 기술 조사 요약의 기술별 길이 상한
@@ -212,7 +214,7 @@ def find_gaps(state: MainState) -> list[dict]:
     """
     gaps: list[dict] = []
     for perspective in EVAL_PERSPECTIVES:
-        findings = state.get(EVAL_KEYS[perspective], {}).get("findings", [])
+        findings = state.get(STATE_KEY[perspective], {}).get("findings", [])
         for technology in _technologies():
             polarities = {f["polarity"] for f in findings if f.get("technology") == technology}
             missing = [p for p in ("strength", "limitation") if p not in polarities]
@@ -333,13 +335,9 @@ def errored(state: MainState) -> dict[str, int]:
 
 
 def _finish(run_id: str, reason: str, **detail: Any) -> MainState:
-    """더 보낼 일이 없다. plan을 비워 dispatch가 종합으로 넘기게 한다.
-
-    worker 결과 원본은 이미 관점별 결과로 옮겨졌으니 여기서 비운다. 뒤의 종합·보고서 재시도 동안
-    체크포인트마다 같은 내용이 두 번 저장되지 않게 하려는 것이다.
-    """
+    """더 보낼 일이 없다. plan을 비워 dispatch가 종합으로 넘기게 한다. task_results는 collect가 회차마다 비운다."""
     log_decision(run_id, NODE, "finish", reason, **detail)
-    return {"plan": [], "task_results": None}
+    return {"plan": []}
 
 
 def node(state: MainState) -> MainState:

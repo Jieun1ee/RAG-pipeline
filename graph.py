@@ -75,10 +75,10 @@ NODES: dict[str, Callable[[MainState], MainState]] = {
 
 # 각 노드가 읽는 상태 키. 노드를 하나만 돌릴 때 이 목록을 보고 입력을 채운다.
 # orchestrator는 기술 조사 결과가 채워져 있으므로 관점 평가 계획부터 세운다.
+# collect는 worker 결과(task_results)를 받아야 해서 단독으로 돌리지 않는다.
 NODE_INPUTS: dict[str, list[str]] = {
     "select_tech": [],
     "orchestrator": ["selected_tech", "target_domain", "criteria", "tech_research"],
-    "collect": ["task_results"],
     "synthesis": ["criteria", *EVAL_KEYS, "synthesis_check"],
     "synthesis_check": ["criteria", *EVAL_KEYS, "synthesis"],
     "report": ["selected_tech", "target_domain", "criteria", *EVAL_KEYS, "synthesis", "synthesis_check", "report_check"],
