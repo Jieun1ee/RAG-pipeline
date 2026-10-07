@@ -73,6 +73,8 @@ class MainState(TypedDict, total=False):
     # ── 제어 메타: 라우팅·종료·재개에 필요한 최소치 ─────────────────
     run_id: Annotated[str, "실행 하나를 가리키는 키. 로그, LangSmith metadata, 체크포인트 thread_id에 같은 값을 쓴다"]
     step_count: Annotated[int, "메인 노드가 실행된 횟수. MAX_STEPS와 견주는 종료 가드", operator.add]
+    plan: Annotated[list[dict], "오케스트레이터가 세운 현재 task 목록. worker 배분·재개에 사용하고 계획 사유는 외부 로그에 남긴다"]
+    replan_count: Annotated[int, "최초 계획 이후 재계획한 횟수. 오케스트레이터가 갱신하고 재계획 상한과 견준다"]
     task_status: Annotated[dict[str, TaskStatus], "task_id별 진행 상태와 보낸 횟수", merge]
     errors: Annotated[dict[str, str], "task_id나 노드 이름별 마지막 오류", merge]
     # 검사 결과의 issues는 로그가 아니라 다시 쓸 때 프롬프트에 붙이는 입력이라 State에 둔다
