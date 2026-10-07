@@ -37,3 +37,4 @@ paths:
   registry: data/registry.yaml
   index_dir: outputs/index
   report: outputs/report.md
+  checkpoint: outputs/checkpoints.sqlite  # 실행 중 상태 저장소. run_id가 thread_id라 --resume RUN_ID로 이어서 돌린다

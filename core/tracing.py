@@ -50,14 +50,18 @@ def configure() -> bool:
     return True
 
 
-def run_config(*, dry_run: bool, mode: str) -> dict[str, Any]:
-    """LangGraph 최상위 실행에 표시할 이름, 태그, 메타데이터를 만든다."""
+def run_config(*, dry_run: bool, mode: str, run_id: str) -> dict[str, Any]:
+    """LangGraph 최상위 실행에 표시할 이름, 태그, 메타데이터를 만든다.
+
+    run_id를 metadata에 넣어 LangSmith에서 State, 로그, 체크포인트와 같은 값으로 찾을 수 있게 한다.
+    """
     if not enabled():
         return {}
     return {
-        "run_name": "kv-cache-eval",
+        "run_name": f"kv-cache-eval {run_id}",
         "tags": ["rag-pipeline", "dry-run" if dry_run else "live"],
         "metadata": {
+            "run_id": run_id,
             "mode": mode,
             "dry_run": dry_run,
         },
