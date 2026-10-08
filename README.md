@@ -361,6 +361,7 @@ python -m core.schemas --validate data/fixtures/
 
 판교캠퍼스 9반 4조
 
-- **P283 김성현** : State·스키마 설계, 평가 기준 정의, 프롬프트 엔지니어링
-- **P292 양지윤** : RAG 파이프라인 구현, 하이브리드 검색, 검색 성능 평가
-- **P299 이지은** : 에이전트 구현, 그래프 조립, 근거 검증 로직
+- **P283 김성현** : 동적 Fan-out(오케스트레이터 기준 선택), 참고문헌·PDF 개선
+- **P292 양지윤** : 보고서 품질 평가, LangSmith 추적
+- **P299 이지은** : Orchestrator-Workers 구조 전환, 아키텍처
+- **P311 한상준** : Orchestrator-Workers 구조 전환, 아키텍처
